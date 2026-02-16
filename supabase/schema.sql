@@ -23,8 +23,6 @@ create table public.shops (
   bio text,
   banner_url text,
   logo_url text,
-  stripe_account_id text,
-  stripe_onboarding_complete boolean default false,
   is_active boolean default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -35,6 +33,8 @@ create table public.designs (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references public.profiles(id) on delete cascade not null,
   prompt text not null,
+  style text,
+  colors text[],
   image_url text not null,
   created_at timestamptz not null default now()
 );
@@ -61,8 +61,7 @@ create table public.orders (
   buyer_id uuid references public.profiles(id) on delete set null,
   product_id uuid references public.products(id) on delete set null not null,
   shop_id uuid references public.shops(id) on delete set null not null,
-  stripe_session_id text,
-  stripe_payment_intent_id text,
+  rapyd_payment_id text,
   printify_order_id text,
   total_amount integer not null, -- in cents
   platform_fee integer not null, -- in cents
@@ -171,14 +170,6 @@ $$ language plpgsql security definer;
 create or replace trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
-
--- Function to generate shop slug
-create or replace function public.generate_slug(shop_name text)
-returns text as $$
-begin
-  return lower(regexp_replace(regexp_replace(shop_name, '[^a-zA-Z0-9\s-]', '', 'g'), '\s+', '-', 'g'));
-end;
-$$ language plpgsql;
 
 -- Indexes for performance
 create index idx_shops_owner on public.shops(owner_id);

@@ -1,17 +1,24 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { Palette, Store, Package, ShoppingCart } from "lucide-react";
+import {
+  Palette,
+  Store,
+  Package,
+  ShoppingCart,
+  TrendingUp,
+  Plus,
+} from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-export default async function DashboardPage() {
+export default async function SellerDashboardPage() {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) redirect("/login");
+  if (!user) redirect("/auth");
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -52,7 +59,6 @@ export default async function DashboardPage() {
     orders = shopOrders || [];
   }
 
-  // Buyer orders
   const { data: buyerOrders } = await supabase
     .from("orders")
     .select("*, product:products(*)")
@@ -60,15 +66,25 @@ export default async function DashboardPage() {
     .order("created_at", { ascending: false })
     .limit(10);
 
+  const totalRevenue =
+    orders
+      ?.filter(
+        (o) => o.status === "paid" || o.status === "delivered"
+      )
+      .reduce((sum, o) => sum + (o.seller_amount as number), 0) || 0;
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold">
+          <h1 className="text-2xl font-bold text-primary">
             Hello, {profile?.full_name || profile?.email}
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            {shop ? `Shop: ${shop.name}` : "Welcome to your dashboard"}
+            {shop
+              ? `Managing: ${shop.name}`
+              : "Welcome to your dashboard"}
           </p>
         </div>
         <div className="flex gap-3 mt-4 sm:mt-0">
@@ -82,7 +98,7 @@ export default async function DashboardPage() {
           {!shop && (
             <Link
               href="/shop/new"
-              className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90"
+              className="inline-flex items-center gap-2 bg-surface-raised border border-border text-primary px-4 py-2 rounded-lg text-sm font-medium hover:border-accent/40"
             >
               <Store className="w-4 h-4" />
               Open a Shop
@@ -94,36 +110,36 @@ export default async function DashboardPage() {
       {/* Stats */}
       {shop && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-muted rounded-lg p-4">
-            <p className="text-sm text-muted-foreground">Products</p>
-            <p className="text-2xl font-bold">{products?.length || 0}</p>
-          </div>
-          <div className="bg-muted rounded-lg p-4">
-            <p className="text-sm text-muted-foreground">Designs</p>
-            <p className="text-2xl font-bold">{designs?.length || 0}</p>
-          </div>
-          <div className="bg-muted rounded-lg p-4">
-            <p className="text-sm text-muted-foreground">Orders</p>
-            <p className="text-2xl font-bold">{orders?.length || 0}</p>
-          </div>
-          <div className="bg-muted rounded-lg p-4">
-            <p className="text-sm text-muted-foreground">Revenue</p>
-            <p className="text-2xl font-bold">
-              $
-              {(
-                (orders
-                  ?.filter((o: Record<string, unknown>) => o.status === "paid" || o.status === "delivered")
-                  .reduce((sum: number, o: Record<string, unknown>) => sum + (o.seller_amount as number), 0) || 0) / 100
-              ).toFixed(2)}
-            </p>
-          </div>
+          {[
+            { label: "Products", value: products.length, icon: Package },
+            { label: "Designs", value: designs?.length || 0, icon: Palette },
+            { label: "Orders", value: orders.length, icon: ShoppingCart },
+            {
+              label: "Revenue",
+              value: `$${(totalRevenue / 100).toFixed(2)}`,
+              icon: TrendingUp,
+            },
+          ].map((stat) => (
+            <div
+              key={stat.label}
+              className="bg-surface border border-border rounded-xl p-4"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <stat.icon className="w-4 h-4 text-accent" />
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                  {stat.label}
+                </p>
+              </div>
+              <p className="text-2xl font-bold text-primary">{stat.value}</p>
+            </div>
+          ))}
         </div>
       )}
 
-      {/* Recent designs */}
+      {/* Designs */}
       <section className="mb-8">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Your Designs</h2>
+          <h2 className="text-lg font-semibold text-primary">Your Designs</h2>
           <Link
             href="/design-studio"
             className="text-sm text-accent hover:underline"
@@ -132,11 +148,11 @@ export default async function DashboardPage() {
           </Link>
         </div>
         {designs && designs.length > 0 ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
             {designs.map((design: Record<string, unknown>) => (
               <div
                 key={design.id as string}
-                className="aspect-square rounded-lg overflow-hidden bg-muted border border-border"
+                className="aspect-square rounded-xl overflow-hidden bg-surface border border-border"
               >
                 <img
                   src={design.image_url as string}
@@ -147,11 +163,14 @@ export default async function DashboardPage() {
             ))}
           </div>
         ) : (
-          <div className="bg-muted rounded-lg p-8 text-center">
+          <div className="bg-surface border border-border rounded-xl p-8 text-center">
             <Palette className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
             <p className="text-muted-foreground text-sm">
               No designs yet.{" "}
-              <Link href="/design-studio" className="text-accent hover:underline">
+              <Link
+                href="/design-studio"
+                className="text-accent hover:underline"
+              >
                 Create your first design
               </Link>
             </p>
@@ -163,16 +182,26 @@ export default async function DashboardPage() {
       {shop && (
         <section className="mb-8">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Your Products</h2>
+            <h2 className="text-lg font-semibold text-primary">
+              Your Products
+            </h2>
+            {products.length > 0 && (
+              <Link
+                href="/product/new"
+                className="text-sm text-accent hover:underline flex items-center gap-1"
+              >
+                <Plus className="w-3 h-3" /> Add new
+              </Link>
+            )}
           </div>
-          {products && products.length > 0 ? (
+          {products.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {products.map((product: Record<string, unknown>) => (
+              {products.map((product) => (
                 <div
                   key={product.id as string}
-                  className="border border-border rounded-lg overflow-hidden"
+                  className="bg-surface border border-border rounded-xl overflow-hidden"
                 >
-                  <div className="aspect-square bg-muted">
+                  <div className="aspect-square bg-surface-raised">
                     <img
                       src={product.image_url as string}
                       alt={product.title as string}
@@ -180,54 +209,58 @@ export default async function DashboardPage() {
                     />
                   </div>
                   <div className="p-3">
-                    <h3 className="font-medium text-sm truncate">
+                    <h3 className="font-medium text-sm text-primary truncate">
                       {product.title as string}
                     </h3>
-                    <p className="text-muted-foreground text-sm">
-                      ${((product.price as number) / 100).toFixed(2)}
-                    </p>
-                    <span
-                      className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full ${
-                        product.is_published
-                          ? "bg-green-100 text-green-700"
-                          : "bg-yellow-100 text-yellow-700"
-                      }`}
-                    >
-                      {product.is_published ? "Published" : "Draft"}
-                    </span>
+                    <div className="flex items-center justify-between mt-1">
+                      <p className="text-accent text-sm font-semibold">
+                        ${((product.price as number) / 100).toFixed(2)}
+                      </p>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full ${
+                          product.is_published
+                            ? "bg-green-500/10 text-green-400"
+                            : "bg-yellow-500/10 text-yellow-400"
+                        }`}
+                      >
+                        {product.is_published ? "Published" : "Draft"}
+                      </span>
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="bg-muted rounded-lg p-8 text-center">
+            <div className="bg-surface border border-border rounded-xl p-8 text-center">
               <Package className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
               <p className="text-muted-foreground text-sm">
-                No products yet. Create a design first, then list it as a product.
+                No products yet. Create a design first, then list it for sale.
               </p>
             </div>
           )}
         </section>
       )}
 
-      {/* Buyer Orders */}
+      {/* Purchases */}
       {buyerOrders && buyerOrders.length > 0 && (
         <section>
-          <h2 className="text-lg font-semibold mb-4">Your Purchases</h2>
+          <h2 className="text-lg font-semibold text-primary mb-4">
+            Your Purchases
+          </h2>
           <div className="space-y-3">
             {buyerOrders.map((order: Record<string, unknown>) => (
               <div
                 key={order.id as string}
-                className="flex items-center gap-4 border border-border rounded-lg p-4"
+                className="flex items-center gap-4 bg-surface border border-border rounded-xl p-4"
               >
                 <ShoppingCart className="w-5 h-5 text-muted-foreground" />
                 <div className="flex-1">
-                  <p className="text-sm font-medium">
+                  <p className="text-sm font-medium text-primary">
                     Order #{(order.id as string).slice(0, 8)}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    ${((order.total_amount as number) / 100).toFixed(2)} &middot;{" "}
-                    {order.status as string}
+                    ${((order.total_amount as number) / 100).toFixed(2)}{" "}
+                    &middot; {order.status as string}
                   </p>
                 </div>
               </div>

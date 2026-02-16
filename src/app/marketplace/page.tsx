@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Store, Search } from "lucide-react";
+import ProductCard from "@/components/ProductCard";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,7 @@ export default async function MarketplacePage() {
 
   const { data: products } = await supabase
     .from("products")
-    .select("*, shop:shops(name, slug)")
+    .select("*, shop:shops(name, id)")
     .eq("is_published", true)
     .order("created_at", { ascending: false });
 
@@ -22,7 +23,7 @@ export default async function MarketplacePage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold">Marketplace</h1>
+        <h1 className="text-3xl font-bold text-primary">Marketplace</h1>
         <p className="text-muted-foreground mt-1">
           Discover unique AI-generated t-shirt designs
         </p>
@@ -31,13 +32,13 @@ export default async function MarketplacePage() {
       {/* Shops section */}
       {shops && shops.length > 0 && (
         <section className="mb-12">
-          <h2 className="text-xl font-semibold mb-4">Shops</h2>
+          <h2 className="text-xl font-semibold mb-4 text-primary">Shops</h2>
           <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4">
             {shops.map((shop) => (
               <Link
                 key={shop.id}
-                href={`/shop/${shop.slug}`}
-                className="flex-shrink-0 w-48 border border-border rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-white"
+                href={`/shop/${shop.id}`}
+                className="flex-shrink-0 w-48 border border-border rounded-lg overflow-hidden hover:shadow-lg hover:shadow-accent/5 transition-shadow bg-surface"
               >
                 <div className="h-16 bg-gradient-to-r from-accent/20 to-accent/5">
                   {shop.banner_url && (
@@ -50,10 +51,10 @@ export default async function MarketplacePage() {
                 </div>
                 <div className="p-3">
                   <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 bg-muted rounded-full flex items-center justify-center -mt-5 border-2 border-white">
+                    <div className="w-6 h-6 bg-surface-raised rounded-full flex items-center justify-center -mt-5 border-2 border-surface">
                       <Store className="w-3 h-3 text-muted-foreground" />
                     </div>
-                    <h3 className="font-medium text-sm truncate">
+                    <h3 className="font-medium text-sm truncate text-primary">
                       {shop.name}
                     </h3>
                   </div>
@@ -66,46 +67,26 @@ export default async function MarketplacePage() {
 
       {/* All products */}
       <section>
-        <h2 className="text-xl font-semibold mb-4">
+        <h2 className="text-xl font-semibold mb-4 text-primary">
           All Products ({products?.length || 0})
         </h2>
         {products && products.length > 0 ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {products.map((product) => (
-              <Link
+              <ProductCard
                 key={product.id}
-                href={`/product/${product.id}`}
-                className="group border border-border rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-white"
-              >
-                <div className="aspect-square bg-muted relative overflow-hidden">
-                  <img
-                    src={product.image_url}
-                    alt={product.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                  />
-                </div>
-                <div className="p-3">
-                  <h3 className="font-medium text-sm truncate">
-                    {product.title}
-                  </h3>
-                  <div className="flex items-center justify-between mt-1">
-                    <p className="text-accent font-semibold text-sm">
-                      ${(product.price / 100).toFixed(2)}
-                    </p>
-                    {product.shop && (
-                      <p className="text-xs text-muted-foreground truncate ml-2">
-                        {(product.shop as { name: string }).name}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </Link>
+                id={product.id}
+                title={product.title}
+                price={product.price}
+                imageUrl={product.image_url}
+                shopName={(product.shop as { name: string } | null)?.name}
+              />
             ))}
           </div>
         ) : (
-          <div className="bg-muted rounded-lg p-16 text-center">
+          <div className="bg-surface rounded-lg p-16 text-center border border-border">
             <Search className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-            <h3 className="font-semibold mb-1">No products yet</h3>
+            <h3 className="font-semibold mb-1 text-primary">No products yet</h3>
             <p className="text-sm text-muted-foreground">
               Be the first to{" "}
               <Link href="/design-studio" className="text-accent hover:underline">

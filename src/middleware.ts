@@ -40,28 +40,28 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Protected routes - redirect to login if not authenticated
-  const protectedPaths = ["/dashboard", "/design-studio", "/shop/new"];
+  // Protected routes - redirect to auth if not authenticated
+  const protectedPaths = ["/seller-dashboard", "/design-studio", "/shop/new", "/product/new"];
   const isProtectedPath = protectedPaths.some((path) =>
     request.nextUrl.pathname.startsWith(path)
   );
 
   if (isProtectedPath && !user) {
     const url = request.nextUrl.clone();
-    url.pathname = "/login";
+    url.pathname = "/auth";
     url.searchParams.set("redirect", request.nextUrl.pathname);
     return NextResponse.redirect(url);
   }
 
-  // Redirect logged-in users away from auth pages
-  const authPaths = ["/login", "/signup"];
+  // Redirect logged-in users away from auth page
+  const authPaths = ["/auth"];
   const isAuthPath = authPaths.some((path) =>
-    request.nextUrl.pathname.startsWith(path)
+    request.nextUrl.pathname === path
   );
 
   if (isAuthPath && user) {
     const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
+    url.pathname = "/seller-dashboard";
     return NextResponse.redirect(url);
   }
 

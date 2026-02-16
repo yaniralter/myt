@@ -27,7 +27,7 @@ export default async function ProductPage({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Product image with T-shirt mockup */}
         <div>
-          <div className="border border-border rounded-lg overflow-hidden bg-gray-50 relative aspect-square flex items-center justify-center">
+          <div className="border border-border rounded-lg overflow-hidden bg-surface relative aspect-square flex items-center justify-center">
             <svg
               viewBox="0 0 400 450"
               className="w-full h-full"
@@ -35,8 +35,8 @@ export default async function ProductPage({
             >
               <path
                 d="M100,60 L60,80 L20,140 L70,160 L90,110 L90,400 L310,400 L310,110 L330,160 L380,140 L340,80 L300,60 L260,50 Q230,80 200,80 Q170,80 140,50 Z"
-                fill="#ffffff"
-                stroke="#e5e7eb"
+                fill="#1a1a2e"
+                stroke="#27273a"
                 strokeWidth="2"
               />
               <image
@@ -64,14 +64,14 @@ export default async function ProductPage({
           <div className="mb-4">
             {product.shop && (
               <Link
-                href={`/shop/${product.shop.slug}`}
-                className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary mb-2"
+                href={`/shop/${product.shop.id}`}
+                className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-accent mb-2"
               >
                 <Store className="w-3 h-3" />
                 {product.shop.name}
               </Link>
             )}
-            <h1 className="text-3xl font-bold">{product.title}</h1>
+            <h1 className="text-3xl font-bold text-primary">{product.title}</h1>
           </div>
 
           <p className="text-3xl font-bold text-accent mb-6">
@@ -80,7 +80,7 @@ export default async function ProductPage({
 
           {product.description && (
             <div className="mb-6">
-              <h2 className="text-sm font-semibold mb-2">Description</h2>
+              <h2 className="text-sm font-semibold mb-2 text-primary">Description</h2>
               <p className="text-muted-foreground">{product.description}</p>
             </div>
           )}
@@ -88,7 +88,7 @@ export default async function ProductPage({
           <CheckoutButton productId={product.id} />
 
           <div className="mt-8 border-t border-border pt-6">
-            <h3 className="text-sm font-semibold mb-3">Product Details</h3>
+            <h3 className="text-sm font-semibold mb-3 text-primary">Product Details</h3>
             <ul className="text-sm text-muted-foreground space-y-2">
               <li>&bull; Premium quality cotton t-shirt</li>
               <li>&bull; Available in multiple sizes</li>

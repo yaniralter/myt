@@ -27,7 +27,7 @@ function NewProductForm() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) {
-        router.push("/login");
+        router.push("/auth");
         return;
       }
 
@@ -75,7 +75,7 @@ function NewProductForm() {
       return;
     }
 
-    // Create Printify product
+    // Create Printify product (optional integration)
     let printifyProductId = null;
     try {
       const printifyRes = await fetch("/api/printify/create-product", {
@@ -112,7 +112,7 @@ function NewProductForm() {
       return;
     }
 
-    router.push("/dashboard");
+    router.push("/seller-dashboard");
     router.refresh();
   }
 
@@ -126,18 +126,18 @@ function NewProductForm() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold mb-6">List a New Product</h1>
+      <h1 className="text-2xl font-bold mb-6 text-primary">List a New Product</h1>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {error && (
-          <div className="bg-red-50 text-destructive text-sm p-3 rounded-lg">
+          <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-lg border border-destructive/20">
             {error}
           </div>
         )}
 
         {/* Select design */}
         <div>
-          <label className="block text-sm font-medium mb-2">
+          <label className="block text-sm font-medium mb-2 text-primary">
             Select a Design *
           </label>
           {designs.length > 0 ? (
@@ -173,14 +173,14 @@ function NewProductForm() {
 
         {/* Preview */}
         {design && (
-          <div className="bg-muted rounded-lg p-4 flex items-center gap-4">
+          <div className="bg-surface-raised rounded-lg p-4 flex items-center gap-4 border border-border">
             <img
               src={design.image_url}
               alt="Selected design"
               className="w-20 h-20 rounded object-cover"
             />
             <div>
-              <p className="text-sm font-medium">Selected Design</p>
+              <p className="text-sm font-medium text-primary">Selected Design</p>
               <p className="text-xs text-muted-foreground truncate max-w-md">
                 {design.prompt}
               </p>
@@ -190,7 +190,7 @@ function NewProductForm() {
 
         {/* Title */}
         <div>
-          <label htmlFor="title" className="block text-sm font-medium mb-1">
+          <label htmlFor="title" className="block text-sm font-medium mb-1 text-primary">
             Product Title *
           </label>
           <input
@@ -200,7 +200,7 @@ function NewProductForm() {
             onChange={(e) => setTitle(e.target.value)}
             required
             maxLength={100}
-            className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
+            className="w-full px-3 py-2 bg-surface-raised border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent text-primary placeholder:text-muted-foreground"
             placeholder="Cosmic Cat T-Shirt"
           />
         </div>
@@ -209,7 +209,7 @@ function NewProductForm() {
         <div>
           <label
             htmlFor="description"
-            className="block text-sm font-medium mb-1"
+            className="block text-sm font-medium mb-1 text-primary"
           >
             Description
           </label>
@@ -219,14 +219,14 @@ function NewProductForm() {
             onChange={(e) => setDescription(e.target.value)}
             rows={4}
             maxLength={1000}
-            className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent resize-none"
+            className="w-full px-3 py-2 bg-surface-raised border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent text-primary placeholder:text-muted-foreground resize-none"
             placeholder="Describe your product..."
           />
         </div>
 
         {/* Price */}
         <div>
-          <label htmlFor="price" className="block text-sm font-medium mb-1">
+          <label htmlFor="price" className="block text-sm font-medium mb-1 text-primary">
             Price (USD) *
           </label>
           <div className="relative">
@@ -239,7 +239,7 @@ function NewProductForm() {
               required
               min="1"
               step="0.01"
-              className="w-full pl-8 pr-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
+              className="w-full pl-8 pr-3 py-2 bg-surface-raised border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent text-primary placeholder:text-muted-foreground"
               placeholder="29.99"
             />
           </div>
@@ -260,7 +260,7 @@ function NewProductForm() {
         <button
           type="submit"
           disabled={saving || !design || !title || !price}
-          className="w-full bg-primary text-primary-foreground py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+          className="w-full bg-accent text-accent-foreground py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
         >
           {saving ? (
             <Loader2 className="w-4 h-4 animate-spin" />

@@ -16,8 +16,6 @@ export interface Shop {
   bio: string | null;
   banner_url: string | null;
   logo_url: string | null;
-  stripe_account_id: string | null;
-  stripe_onboarding_complete: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -27,6 +25,8 @@ export interface Design {
   id: string;
   user_id: string;
   prompt: string;
+  style: string | null;
+  colors: string[] | null;
   image_url: string;
   created_at: string;
 }
@@ -53,8 +53,7 @@ export interface Order {
   buyer_id: string | null;
   product_id: string | null;
   shop_id: string | null;
-  stripe_session_id: string | null;
-  stripe_payment_intent_id: string | null;
+  rapyd_payment_id: string | null;
   printify_order_id: string | null;
   total_amount: number;
   platform_fee: number;

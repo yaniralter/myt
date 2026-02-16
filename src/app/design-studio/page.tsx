@@ -161,7 +161,7 @@ export default function DesignStudioPage() {
     <div className="max-w-6xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="text-center mb-10">
-        <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
+        <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-primary">
           AI Design Studio
         </h1>
         <p className="text-muted-foreground mt-2 max-w-lg mx-auto">
@@ -175,14 +175,14 @@ export default function DesignStudioPage() {
         <div>
           <form onSubmit={handleGenerate} className="space-y-6">
             {error && (
-              <div className="bg-red-50 text-destructive text-sm p-3 rounded-lg">
+              <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-lg border border-destructive/20">
                 {error}
               </div>
             )}
 
             {/* Prompt */}
             <div>
-              <label className="block text-sm font-semibold mb-2">
+              <label className="block text-sm font-semibold mb-2 text-primary">
                 Design Prompt
               </label>
               <textarea
@@ -192,7 +192,7 @@ export default function DesignStudioPage() {
                 rows={3}
                 maxLength={500}
                 disabled={generating}
-                className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent resize-none disabled:opacity-50"
+                className="w-full px-4 py-3 bg-surface-raised border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent text-primary placeholder:text-muted-foreground resize-none disabled:opacity-50"
               />
               <p className="text-xs text-muted-foreground mt-1">
                 {prompt.length}/500 characters
@@ -201,7 +201,7 @@ export default function DesignStudioPage() {
 
             {/* Style Presets */}
             <div>
-              <label className="block text-sm font-semibold mb-2">
+              <label className="block text-sm font-semibold mb-2 text-primary">
                 Style Preset
               </label>
               <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
@@ -217,8 +217,8 @@ export default function DesignStudioPage() {
                     }
                     className={`flex flex-col items-center gap-1 py-3 px-2 rounded-lg border text-xs font-medium transition-all disabled:opacity-50 ${
                       selectedStyle === style.id
-                        ? "border-accent bg-accent/5 text-accent ring-1 ring-accent/20"
-                        : "border-border hover:border-accent/40 text-muted-foreground hover:text-primary"
+                        ? "border-accent bg-accent/10 text-accent ring-1 ring-accent/30"
+                        : "border-border bg-surface hover:border-accent/40 text-muted-foreground hover:text-primary"
                     }`}
                   >
                     <span className="text-base">{style.emoji}</span>
@@ -231,7 +231,7 @@ export default function DesignStudioPage() {
             {/* Color Palette */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-semibold">
+                <label className="text-sm font-semibold text-primary">
                   Color Palette
                 </label>
                 <span className="text-xs text-muted-foreground">
@@ -264,7 +264,7 @@ export default function DesignStudioPage() {
                           className={`w-4 h-4 absolute inset-0 m-auto ${
                             color.name === "Black"
                               ? "text-white"
-                              : "text-primary"
+                              : "text-primary-foreground"
                           }`}
                         />
                       )}
@@ -282,7 +282,7 @@ export default function DesignStudioPage() {
                       return (
                         <span
                           key={name}
-                          className="inline-flex items-center gap-1 text-xs bg-muted px-2 py-1 rounded-full"
+                          className="inline-flex items-center gap-1 text-xs bg-surface-raised px-2 py-1 rounded-full text-primary"
                         >
                           <span
                             className="w-2.5 h-2.5 rounded-full border border-border"
@@ -331,7 +331,7 @@ export default function DesignStudioPage() {
           {/* Gallery */}
           {designs.length > 0 && (
             <div className="mt-10">
-              <h2 className="text-sm font-semibold mb-3">Your Gallery</h2>
+              <h2 className="text-sm font-semibold mb-3 text-primary">Your Gallery</h2>
               <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
                 {designs.map((design) => (
                   <button
@@ -361,12 +361,12 @@ export default function DesignStudioPage() {
         {/* Right column: Preview */}
         <div className="lg:sticky lg:top-24 lg:self-start">
           {generating ? (
-            <div className="border border-border rounded-xl bg-gray-50 aspect-square flex flex-col items-center justify-center gap-4">
+            <div className="border border-border rounded-xl bg-surface aspect-square flex flex-col items-center justify-center gap-4">
               <div className="relative">
                 <Loader2 className="w-10 h-10 animate-spin text-accent" />
               </div>
               <div className="text-center">
-                <p className="font-medium text-sm">Creating your design</p>
+                <p className="font-medium text-sm text-primary">Creating your design</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   This usually takes 10-20 seconds...
                 </p>
@@ -375,35 +375,31 @@ export default function DesignStudioPage() {
           ) : currentDesign ? (
             <div>
               {/* T-Shirt Mockup */}
-              <div className="border border-border rounded-xl overflow-hidden bg-gradient-to-b from-gray-50 to-gray-100 relative aspect-square flex items-center justify-center">
+              <div className="border border-border rounded-xl overflow-hidden bg-gradient-to-b from-surface to-surface-raised relative aspect-square flex items-center justify-center">
                 <svg
                   viewBox="0 0 400 450"
                   className="w-full h-full"
                   xmlns="http://www.w3.org/2000/svg"
                 >
-                  {/* Shadow */}
                   <ellipse
                     cx="200"
                     cy="430"
                     rx="120"
                     ry="8"
-                    fill="#00000008"
+                    fill="#ffffff08"
                   />
-                  {/* T-shirt body */}
                   <path
                     d="M100,60 L60,80 L20,140 L70,160 L90,110 L90,400 L310,400 L310,110 L330,160 L380,140 L340,80 L300,60 L260,50 Q230,80 200,80 Q170,80 140,50 Z"
-                    fill="#ffffff"
-                    stroke="#d1d5db"
+                    fill="#1a1a2e"
+                    stroke="#27273a"
                     strokeWidth="1.5"
                   />
-                  {/* Collar */}
                   <path
                     d="M140,50 Q170,75 200,75 Q230,75 260,50"
                     fill="none"
-                    stroke="#d1d5db"
+                    stroke="#27273a"
                     strokeWidth="1"
                   />
-                  {/* Design overlay */}
                   <image
                     href={currentDesign.image_url}
                     x="115"
@@ -421,7 +417,7 @@ export default function DesignStudioPage() {
                 <button
                   onClick={handleRegenerate}
                   disabled={generating || !lastPromptUsed}
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 border border-border rounded-lg text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 border border-border rounded-lg text-sm font-medium hover:bg-surface-raised transition-colors disabled:opacity-50 text-primary"
                 >
                   <RefreshCw className="w-4 h-4" />
                   Regenerate
@@ -429,7 +425,7 @@ export default function DesignStudioPage() {
                 <button
                   onClick={handleVariation}
                   disabled={generating || !lastPromptUsed}
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 border border-border rounded-lg text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 border border-border rounded-lg text-sm font-medium hover:bg-surface-raised transition-colors disabled:opacity-50 text-primary"
                 >
                   <Shuffle className="w-4 h-4" />
                   Variation
@@ -441,7 +437,7 @@ export default function DesignStudioPage() {
                 {hasShop ? (
                   <Link
                     href={`/product/new?design=${currentDesign.id}`}
-                    className="flex-1 bg-primary text-primary-foreground py-2.5 rounded-lg font-medium hover:opacity-90 flex items-center justify-center gap-2 text-sm"
+                    className="flex-1 bg-accent text-accent-foreground py-2.5 rounded-lg font-medium hover:opacity-90 flex items-center justify-center gap-2 text-sm"
                   >
                     <ShoppingBag className="w-4 h-4" />
                     Publish to Shop
@@ -449,7 +445,7 @@ export default function DesignStudioPage() {
                 ) : (
                   <Link
                     href="/shop/new"
-                    className="flex-1 bg-primary text-primary-foreground py-2.5 rounded-lg font-medium hover:opacity-90 flex items-center justify-center gap-2 text-sm"
+                    className="flex-1 bg-accent text-accent-foreground py-2.5 rounded-lg font-medium hover:opacity-90 flex items-center justify-center gap-2 text-sm"
                   >
                     <ShoppingBag className="w-4 h-4" />
                     Open a Shop to Sell
@@ -459,7 +455,7 @@ export default function DesignStudioPage() {
                   href={currentDesign.image_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-4 py-2.5 border border-border rounded-lg hover:bg-muted flex items-center gap-2 text-sm"
+                  className="px-4 py-2.5 border border-border rounded-lg hover:bg-surface-raised flex items-center gap-2 text-sm text-primary"
                 >
                   <Download className="w-4 h-4" />
                 </a>
@@ -471,12 +467,12 @@ export default function DesignStudioPage() {
               </p>
             </div>
           ) : (
-            <div className="border border-dashed border-border rounded-xl bg-gray-50/50 aspect-square flex flex-col items-center justify-center gap-3 text-center px-8">
+            <div className="border border-dashed border-border rounded-xl bg-surface aspect-square flex flex-col items-center justify-center gap-3 text-center px-8">
               <div className="w-14 h-14 rounded-full bg-accent/10 flex items-center justify-center">
                 <Sparkles className="w-7 h-7 text-accent" />
               </div>
               <div>
-                <p className="font-medium text-sm">Your design preview</p>
+                <p className="font-medium text-sm text-primary">Your design preview</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   Enter a prompt, choose a style, and hit Generate to see your
                   design on a t-shirt mockup.

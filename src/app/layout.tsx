@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Navbar from "@/components/navbar";
+import Navbar from "@/components/Navbar";
 
 export const metadata: Metadata = {
   title: "MYT - Design & Sell Custom T-Shirts",
@@ -14,11 +14,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className="antialiased bg-white text-primary font-sans">
+    <html lang="en" className="dark">
+      <body className="antialiased bg-bg text-primary font-sans">
         <Navbar />
         <main className="min-h-[calc(100vh-4rem)]">{children}</main>
-        <footer className="border-t border-border py-8 text-center text-sm text-muted-foreground">
+        <footer className="border-t border-border bg-bg py-8 text-center text-sm text-muted-foreground">
           <p>&copy; {new Date().getFullYear()} MYT. All rights reserved.</p>
         </footer>
       </body>

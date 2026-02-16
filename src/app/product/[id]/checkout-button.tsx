@@ -23,7 +23,7 @@ export default function CheckoutButton({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      // Redirect to Stripe checkout
+      // Redirect to Rapyd checkout
       window.location.href = data.url;
     } catch {
       alert("Failed to start checkout. Please try again.");
@@ -35,7 +35,7 @@ export default function CheckoutButton({
     <button
       onClick={handleCheckout}
       disabled={loading}
-      className="w-full bg-primary text-primary-foreground py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+      className="w-full bg-accent text-accent-foreground py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
     >
       {loading ? (
         <Loader2 className="w-4 h-4 animate-spin" />

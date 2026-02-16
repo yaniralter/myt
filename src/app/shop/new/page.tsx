@@ -93,7 +93,7 @@ export default function NewShopPage() {
       .update({ role: "seller" })
       .eq("id", user.id);
 
-    router.push("/dashboard");
+    router.push("/seller-dashboard");
     router.refresh();
   }
 
@@ -101,7 +101,7 @@ export default function NewShopPage() {
     <div className="max-w-2xl mx-auto px-4 py-8">
       <div className="text-center mb-8">
         <Store className="w-10 h-10 mx-auto mb-3 text-accent" />
-        <h1 className="text-2xl font-bold">Open Your Shop</h1>
+        <h1 className="text-2xl font-bold text-primary">Open Your Shop</h1>
         <p className="text-muted-foreground mt-1">
           Set up your shop and start selling custom t-shirts
         </p>
@@ -109,14 +109,14 @@ export default function NewShopPage() {
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {error && (
-          <div className="bg-red-50 text-destructive text-sm p-3 rounded-lg">
+          <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-lg border border-destructive/20">
             {error}
           </div>
         )}
 
         {/* Banner upload */}
         <div>
-          <label className="block text-sm font-medium mb-2">
+          <label className="block text-sm font-medium mb-2 text-primary">
             Shop Banner
           </label>
           <div
@@ -132,7 +132,7 @@ export default function NewShopPage() {
                 className="w-full h-48 object-cover"
               />
             ) : (
-              <div className="h-48 flex flex-col items-center justify-center text-muted-foreground">
+              <div className="h-48 flex flex-col items-center justify-center text-muted-foreground bg-surface">
                 <Upload className="w-8 h-8 mb-2" />
                 <p className="text-sm">Click to upload a banner image</p>
                 <p className="text-xs mt-1">Recommended: 1200x400px</p>
@@ -150,7 +150,7 @@ export default function NewShopPage() {
 
         {/* Shop name */}
         <div>
-          <label htmlFor="name" className="block text-sm font-medium mb-1">
+          <label htmlFor="name" className="block text-sm font-medium mb-1 text-primary">
             Shop Name *
           </label>
           <input
@@ -160,7 +160,7 @@ export default function NewShopPage() {
             onChange={(e) => setName(e.target.value)}
             required
             maxLength={50}
-            className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
+            className="w-full px-3 py-2 bg-surface-raised border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent text-primary placeholder:text-muted-foreground"
             placeholder="My Awesome T-Shirt Shop"
           />
           {name && (
@@ -172,7 +172,7 @@ export default function NewShopPage() {
 
         {/* Bio */}
         <div>
-          <label htmlFor="bio" className="block text-sm font-medium mb-1">
+          <label htmlFor="bio" className="block text-sm font-medium mb-1 text-primary">
             Shop Bio
           </label>
           <textarea
@@ -181,7 +181,7 @@ export default function NewShopPage() {
             onChange={(e) => setBio(e.target.value)}
             maxLength={500}
             rows={4}
-            className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent resize-none"
+            className="w-full px-3 py-2 bg-surface-raised border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent text-primary placeholder:text-muted-foreground resize-none"
             placeholder="Tell customers about your shop and what makes your designs special..."
           />
           <p className="text-xs text-muted-foreground mt-1">
@@ -192,7 +192,7 @@ export default function NewShopPage() {
         <button
           type="submit"
           disabled={loading || !name}
-          className="w-full bg-primary text-primary-foreground py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+          className="w-full bg-accent text-accent-foreground py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
         >
           {loading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
