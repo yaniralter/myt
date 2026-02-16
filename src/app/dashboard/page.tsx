@@ -73,7 +73,7 @@ export default async function DashboardPage() {
         </div>
         <div className="flex gap-3 mt-4 sm:mt-0">
           <Link
-            href="/design"
+            href="/design-studio"
             className="inline-flex items-center gap-2 bg-accent text-accent-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90"
           >
             <Palette className="w-4 h-4" />
@@ -125,7 +125,7 @@ export default async function DashboardPage() {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">Your Designs</h2>
           <Link
-            href="/design"
+            href="/design-studio"
             className="text-sm text-accent hover:underline"
           >
             Create new
@@ -151,7 +151,7 @@ export default async function DashboardPage() {
             <Palette className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
             <p className="text-muted-foreground text-sm">
               No designs yet.{" "}
-              <Link href="/design" className="text-accent hover:underline">
+              <Link href="/design-studio" className="text-accent hover:underline">
                 Create your first design
               </Link>
             </p>

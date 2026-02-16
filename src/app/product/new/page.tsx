@@ -164,7 +164,7 @@ function NewProductForm() {
           ) : (
             <p className="text-sm text-muted-foreground">
               No designs yet.{" "}
-              <a href="/design" className="text-accent hover:underline">
+              <a href="/design-studio" className="text-accent hover:underline">
                 Create one first
               </a>
             </p>

@@ -38,7 +38,7 @@ export default async function HomePage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center mt-8">
               <Link
-                href="/design"
+                href="/design-studio"
                 className="inline-flex items-center justify-center gap-2 bg-accent text-accent-foreground px-6 py-3 rounded-lg font-medium hover:opacity-90 transition-opacity"
               >
                 <Sparkles className="w-4 h-4" />

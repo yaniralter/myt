@@ -56,7 +56,7 @@ export default function Navbar() {
             {user && (
               <>
                 <Link
-                  href="/design"
+                  href="/design-studio"
                   className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
                 >
                   <Palette className="w-4 h-4" />
@@ -132,7 +132,7 @@ export default function Navbar() {
           {user ? (
             <>
               <Link
-                href="/design"
+                href="/design-studio"
                 className="block text-sm text-muted-foreground hover:text-primary"
                 onClick={() => setMenuOpen(false)}
               >

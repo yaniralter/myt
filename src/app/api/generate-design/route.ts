@@ -6,6 +6,46 @@ function getOpenAI() {
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 }
 
+const STYLE_INSTRUCTIONS: Record<string, string> = {
+  vintage:
+    "retro vintage aesthetic, distressed texture, faded warm tones, hand-drawn feel, classic Americana style",
+  minimalist:
+    "clean minimalist design, simple geometric shapes, lots of negative space, single-weight line art, modern simplicity",
+  streetwear:
+    "bold streetwear graphic, urban culture inspired, high contrast, graffiti influence, edgy and contemporary",
+  anime:
+    "anime and manga inspired illustration, cel-shaded look, vibrant colors, dynamic pose, Japanese pop art style",
+  abstract:
+    "abstract artistic composition, bold shapes and forms, expressive brushstrokes, modern art inspired, visually striking",
+  retro:
+    "80s/90s retro style, neon colors, synthwave aesthetic, chrome effects, nostalgic pop culture vibes",
+};
+
+function buildEnhancedPrompt(
+  userPrompt: string,
+  style?: string,
+  colors?: string[]
+): string {
+  const parts: string[] = [];
+
+  parts.push(`T-shirt graphic design: ${userPrompt}.`);
+
+  if (style && STYLE_INSTRUCTIONS[style]) {
+    parts.push(`Art style: ${STYLE_INSTRUCTIONS[style]}.`);
+  }
+
+  if (colors && colors.length > 0) {
+    const colorNames = colors.join(", ");
+    parts.push(`Dominant color palette: ${colorNames}.`);
+  }
+
+  parts.push(
+    "Clean vector graphic, transparent or solid white background, centered composition, suitable for screen printing, no text or lettering, high resolution, isolated design element."
+  );
+
+  return parts.join(" ");
+}
+
 export async function POST(request: Request) {
   const supabase = await createClient();
   const {
@@ -16,7 +56,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { prompt } = await request.json();
+  const body = await request.json();
+  const { prompt, style, colors } = body as {
+    prompt: string;
+    style?: string;
+    colors?: string[];
+  };
 
   if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
     return NextResponse.json(
@@ -25,10 +70,12 @@ export async function POST(request: Request) {
     );
   }
 
+  const enhancedPrompt = buildEnhancedPrompt(prompt.trim(), style, colors);
+
   try {
     const response = await getOpenAI().images.generate({
       model: "dall-e-3",
-      prompt: `A t-shirt design: ${prompt}. The design should be on a transparent or white background, suitable for printing on a t-shirt. High quality, detailed illustration.`,
+      prompt: enhancedPrompt,
       n: 1,
       size: "1024x1024",
       quality: "standard",
@@ -63,7 +110,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ design });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Failed to generate design";
+    const message =
+      err instanceof Error ? err.message : "Failed to generate design";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

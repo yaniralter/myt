@@ -108,7 +108,7 @@ export default async function MarketplacePage() {
             <h3 className="font-semibold mb-1">No products yet</h3>
             <p className="text-sm text-muted-foreground">
               Be the first to{" "}
-              <Link href="/design" className="text-accent hover:underline">
+              <Link href="/design-studio" className="text-accent hover:underline">
                 create a design
               </Link>{" "}
               and list it for sale.
