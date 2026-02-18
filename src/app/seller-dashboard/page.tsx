@@ -260,6 +260,7 @@ export default async function SellerDashboardPage() {
                   </p>
                   <p className="text-xs text-muted-foreground">
                     ${((order.total_amount as number) / 100).toFixed(2)}{" "}
+                    {order.size ? <>&middot; Size {order.size as string} </> : null}
                     &middot; {order.status as string}
                   </p>
                 </div>

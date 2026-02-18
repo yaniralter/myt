@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createPrintifyOrder } from "@/lib/printify";
+import { SIZE_TO_VARIANT_ID, type TShirtSize } from "@/lib/types";
 import crypto from "crypto";
 
 function getSupabase() {
@@ -16,21 +17,31 @@ function verifyWebhookSignature(
   salt: string | null,
   timestamp: string | null
 ): boolean {
-  if (!signature || !salt || !timestamp) return false;
+  if (!signature || !salt || !timestamp) {
+    console.error("[Rapyd Webhook] Missing signature headers:", {
+      hasSignature: !!signature,
+      hasSalt: !!salt,
+      hasTimestamp: !!timestamp,
+    });
+    return false;
+  }
 
-  const secretKey = process.env.RAPYD_SECRET_KEY;
-  if (!secretKey) return false;
+  const webhookSecret = process.env.RAPYD_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    console.error("[Rapyd Webhook] RAPYD_WEBHOOK_SECRET is not configured");
+    return false;
+  }
 
   const toSign =
     process.env.RAPYD_WEBHOOK_PATH +
     salt +
     timestamp +
     process.env.RAPYD_ACCESS_KEY +
-    secretKey +
+    webhookSecret +
     body;
 
   const expectedSignature = crypto
-    .createHmac("sha256", secretKey)
+    .createHmac("sha256", webhookSecret)
     .update(toSign)
     .digest("base64");
 
@@ -40,7 +51,8 @@ function verifyWebhookSignature(
       Buffer.from(signature, "base64"),
       Buffer.from(expectedSignature, "base64")
     );
-  } catch {
+  } catch (err) {
+    console.error("[Rapyd Webhook] Signature comparison failed:", err);
     return false;
   }
 }
@@ -54,6 +66,7 @@ export async function POST(request: Request) {
   const timestamp = request.headers.get("timestamp");
 
   if (!verifyWebhookSignature(rawBody, signature, salt, timestamp)) {
+    console.error("[Rapyd Webhook] Signature verification failed for request");
     return NextResponse.json(
       { error: "Invalid webhook signature" },
       { status: 401 }
@@ -92,8 +105,14 @@ export async function POST(request: Request) {
       if (product?.printify_product_id) {
         try {
           const shippingAddress = data.shipping_address || {};
+
+          // Resolve variant ID from the size stored in metadata
+          const size = metadata.size as TShirtSize | undefined;
+          const variantId = size ? SIZE_TO_VARIANT_ID[size] : undefined;
+
           const printifyOrder = await createPrintifyOrder({
             productId: product.printify_product_id,
+            variantId,
             shippingAddress: {
               first_name: shippingAddress.first_name || "",
               last_name: shippingAddress.last_name || "",
@@ -114,8 +133,8 @@ export async function POST(request: Request) {
               updated_at: new Date().toISOString(),
             })
             .eq("rapyd_payment_id", data.id);
-        } catch {
-          console.error("Failed to create Printify order");
+        } catch (err) {
+          console.error("[Rapyd Webhook] Failed to create Printify order:", err);
         }
       }
     }

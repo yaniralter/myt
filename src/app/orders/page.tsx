@@ -115,6 +115,11 @@ export default async function OrdersPage() {
                       <span className="text-primary font-semibold">
                         ${((order.total_amount as number) / 100).toFixed(2)}
                       </span>
+                      {order.size ? (
+                        <span className="text-xs font-medium px-2 py-0.5 rounded bg-surface-raised border border-border text-muted-foreground">
+                          Size: {String(order.size)}
+                        </span>
+                      ) : null}
                       <span className="text-muted-foreground">
                         {new Date(
                           order.created_at as string

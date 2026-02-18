@@ -69,6 +69,7 @@ export async function createPrintifyProduct(params: {
 
 export async function createPrintifyOrder(params: {
   productId: string;
+  variantId?: number;
   shippingAddress: {
     first_name: string;
     last_name: string;
@@ -89,7 +90,7 @@ export async function createPrintifyOrder(params: {
       line_items: [
         {
           product_id: params.productId,
-          variant_id: 17118, // Default to L
+          variant_id: params.variantId || 17118,
           quantity: 1,
         },
       ],

@@ -91,7 +91,7 @@ export default async function ProductPage({
             <h3 className="text-sm font-semibold mb-3 text-primary">Product Details</h3>
             <ul className="text-sm text-muted-foreground space-y-2">
               <li>&bull; Premium quality cotton t-shirt</li>
-              <li>&bull; Available in multiple sizes</li>
+              <li>&bull; Available in S, M, L, XL, 2XL</li>
               <li>&bull; Printed on demand</li>
               <li>&bull; Ships worldwide</li>
             </ul>

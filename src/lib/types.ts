@@ -48,6 +48,19 @@ export interface Product {
   shop?: Shop;
 }
 
+export type TShirtSize = "S" | "M" | "L" | "XL" | "2XL";
+
+export const T_SHIRT_SIZES: TShirtSize[] = ["S", "M", "L", "XL", "2XL"];
+
+// Printify variant IDs for Gildan Ultra Cotton Tee (Blueprint 6)
+export const SIZE_TO_VARIANT_ID: Record<TShirtSize, number> = {
+  S: 17116,
+  M: 17117,
+  L: 17118,
+  XL: 17119,
+  "2XL": 17120,
+};
+
 export interface Order {
   id: string;
   buyer_id: string | null;
@@ -58,6 +71,7 @@ export interface Order {
   total_amount: number;
   platform_fee: number;
   seller_amount: number;
+  size: TShirtSize | null;
   status: "pending" | "paid" | "processing" | "shipped" | "delivered" | "cancelled";
   shipping_address: Record<string, string> | null;
   created_at: string;

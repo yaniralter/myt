@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createCheckout, calculateFees } from "@/lib/rapyd";
+import { T_SHIRT_SIZES, type TShirtSize } from "@/lib/types";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -12,7 +13,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { productId } = await request.json();
+  const { productId, size } = (await request.json()) as {
+    productId?: string;
+    size?: TShirtSize;
+  };
 
   if (!productId) {
     return NextResponse.json(
@@ -20,6 +24,9 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
+
+  const selectedSize: TShirtSize =
+    size && T_SHIRT_SIZES.includes(size) ? size : "L";
 
   // Get product with shop details
   const { data: product } = await supabase
@@ -44,19 +51,21 @@ export async function POST(request: Request) {
     const checkout = await createCheckout({
       amount: product.price / 100,
       currency: "USD",
-      productName: product.title,
+      productName: `${product.title} (${selectedSize})`,
       completeUrl: `${appUrl}/checkout/success?checkout_id={checkout_id}`,
       cancelUrl: `${appUrl}/product/${productId}`,
       metadata: {
         product_id: productId,
         shop_id: product.shop_id,
         buyer_id: user.id,
+        buyer_email: user.email || "",
         platform_fee: platformFee.toString(),
         seller_amount: sellerAmount.toString(),
+        size: selectedSize,
       },
     });
 
-    // Create order record
+    // Create order record with size
     await supabase.from("orders").insert({
       buyer_id: user.id,
       product_id: productId,
@@ -65,6 +74,7 @@ export async function POST(request: Request) {
       total_amount: product.price,
       platform_fee: platformFee,
       seller_amount: sellerAmount,
+      size: selectedSize,
       status: "pending",
     });
 
