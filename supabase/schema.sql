@@ -66,6 +66,7 @@ create table public.orders (
   total_amount integer not null, -- in cents
   platform_fee integer not null, -- in cents
   seller_amount integer not null, -- in cents
+  size text check (size in ('S', 'M', 'L', 'XL', '2XL')),
   status text not null default 'pending' check (status in ('pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled')),
   shipping_address jsonb,
   created_at timestamptz not null default now(),
