@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createPrintifyOrder } from "@/lib/printify";
+import crypto from "crypto";
 
 function getSupabase() {
   return createClient(
@@ -9,9 +10,58 @@ function getSupabase() {
   );
 }
 
+function verifyWebhookSignature(
+  body: string,
+  signature: string | null,
+  salt: string | null,
+  timestamp: string | null
+): boolean {
+  if (!signature || !salt || !timestamp) return false;
+
+  const secretKey = process.env.RAPYD_SECRET_KEY;
+  if (!secretKey) return false;
+
+  const toSign =
+    process.env.RAPYD_WEBHOOK_PATH +
+    salt +
+    timestamp +
+    process.env.RAPYD_ACCESS_KEY +
+    secretKey +
+    body;
+
+  const expectedSignature = crypto
+    .createHmac("sha256", secretKey)
+    .update(toSign)
+    .digest("base64");
+
+  // Constant-time comparison to prevent timing attacks
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(signature, "base64"),
+      Buffer.from(expectedSignature, "base64")
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(request: Request) {
+  const rawBody = await request.text();
+
+  // Verify Rapyd webhook signature
+  const signature = request.headers.get("signature");
+  const salt = request.headers.get("salt");
+  const timestamp = request.headers.get("timestamp");
+
+  if (!verifyWebhookSignature(rawBody, signature, salt, timestamp)) {
+    return NextResponse.json(
+      { error: "Invalid webhook signature" },
+      { status: 401 }
+    );
+  }
+
   const supabase = getSupabase();
-  const body = await request.json();
+  const body = JSON.parse(rawBody);
 
   // Rapyd sends webhook events with a type field
   const eventType = body.type;

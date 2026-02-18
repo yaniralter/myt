@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getOpenAI, buildEnhancedPrompt } from "@/lib/openai";
+import { uploadImage } from "@/lib/cloudinary";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -37,22 +38,31 @@ export async function POST(request: Request) {
       quality: "standard",
     });
 
-    const imageUrl = response.data?.[0]?.url;
+    const tempImageUrl = response.data?.[0]?.url;
 
-    if (!imageUrl) {
+    if (!tempImageUrl) {
       return NextResponse.json(
         { error: "Failed to generate image" },
         { status: 500 }
       );
     }
 
-    // Save the design to database
+    // Upload to Cloudinary for permanent storage
+    let permanentUrl: string;
+    try {
+      permanentUrl = await uploadImage(tempImageUrl, "myt-designs");
+    } catch {
+      // Fall back to the temporary URL if Cloudinary upload fails
+      permanentUrl = tempImageUrl;
+    }
+
+    // Save the design to database with the permanent Cloudinary URL
     const { data: design, error: insertError } = await supabase
       .from("designs")
       .insert({
         user_id: user.id,
         prompt: prompt.trim(),
-        image_url: imageUrl,
+        image_url: permanentUrl,
         style: style || null,
         colors: colors || null,
       })

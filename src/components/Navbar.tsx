@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Menu, X, Palette, Store, LogOut, User } from "lucide-react";
+import { Menu, X, Palette, Store, LogOut, User, Settings, ShoppingBag } from "lucide-react";
 import type { Profile } from "@/lib/types";
 
 export default function Navbar() {
@@ -81,6 +81,13 @@ export default function Navbar() {
                   <Store className="w-4 h-4" />
                   Dashboard
                 </Link>
+                <Link
+                  href="/orders"
+                  className="text-sm text-muted-foreground hover:text-primary flex items-center gap-1.5"
+                >
+                  <ShoppingBag className="w-4 h-4" />
+                  Orders
+                </Link>
                 <div className="flex items-center gap-3 pl-3 border-l border-border">
                   {user.avatar_url ? (
                     <img
@@ -96,6 +103,13 @@ export default function Navbar() {
                   <span className="text-sm text-primary truncate max-w-[120px]">
                     {user.full_name || user.email}
                   </span>
+                  <Link
+                    href="/settings"
+                    className="text-muted-foreground hover:text-primary transition-colors"
+                    title="Settings"
+                  >
+                    <Settings className="w-4 h-4" />
+                  </Link>
                   <button
                     onClick={handleSignOut}
                     className="text-muted-foreground hover:text-destructive transition-colors"
@@ -162,6 +176,20 @@ export default function Navbar() {
                 onClick={() => setMenuOpen(false)}
               >
                 Dashboard
+              </Link>
+              <Link
+                href="/orders"
+                className="block text-sm text-muted-foreground hover:text-primary"
+                onClick={() => setMenuOpen(false)}
+              >
+                My Orders
+              </Link>
+              <Link
+                href="/settings"
+                className="block text-sm text-muted-foreground hover:text-primary"
+                onClick={() => setMenuOpen(false)}
+              >
+                Settings
               </Link>
               <button
                 onClick={() => {
