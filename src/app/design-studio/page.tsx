@@ -19,6 +19,7 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
+  Palette,
 } from "lucide-react";
 import type { Design } from "@/lib/types";
 
@@ -67,6 +68,23 @@ const FONT_OPTIONS = [
   { value: "'Courier New', monospace", label: "Courier" },
 ];
 
+interface TShirtColor {
+  name: string;
+  fill: string;
+  stroke: string;
+  foldLight: string;
+  foldDark: string;
+  isLight: boolean;
+}
+
+const TSHIRT_COLORS: TShirtColor[] = [
+  { name: "White", fill: "#F5F5F5", stroke: "#D4D4D4", foldLight: "rgba(255,255,255,0.5)", foldDark: "rgba(0,0,0,0.06)", isLight: true },
+  { name: "Black", fill: "#1C1C1C", stroke: "#333333", foldLight: "rgba(255,255,255,0.08)", foldDark: "rgba(0,0,0,0.25)", isLight: false },
+  { name: "Heather Gray", fill: "#9CA3AF", stroke: "#7B8294", foldLight: "rgba(255,255,255,0.25)", foldDark: "rgba(0,0,0,0.12)", isLight: true },
+  { name: "Navy Blue", fill: "#1E3A5F", stroke: "#152C4A", foldLight: "rgba(255,255,255,0.08)", foldDark: "rgba(0,0,0,0.2)", isLight: false },
+  { name: "Red", fill: "#DC2626", stroke: "#B91C1C", foldLight: "rgba(255,255,255,0.12)", foldDark: "rgba(0,0,0,0.15)", isLight: false },
+];
+
 type TextPosition = "top" | "center" | "bottom";
 type TextAlign = "left" | "center" | "right";
 
@@ -85,7 +103,7 @@ const DEFAULT_TEXT_OVERLAY: TextOverlay = {
   text: "",
   font: "Arial, sans-serif",
   fontSize: 40,
-  color: "#FFFFFF",
+  color: "#1C1C1C",
   position: "bottom",
   align: "center",
   bold: false,
@@ -105,6 +123,9 @@ export default function DesignStudioPage() {
   const [error, setError] = useState("");
   const [hasShop, setHasShop] = useState(false);
   const supabase = createClient();
+
+  // T-shirt color state
+  const [selectedShirtColor, setSelectedShirtColor] = useState(TSHIRT_COLORS[0]);
 
   // Text overlay state
   const [showTextEditor, setShowTextEditor] = useState(false);
@@ -139,6 +160,14 @@ export default function DesignStudioPage() {
     }
     load();
   }, []);
+
+  // Auto-adjust text color for contrast when shirt color changes
+  useEffect(() => {
+    setTextOverlay((prev) => ({
+      ...prev,
+      color: selectedShirtColor.isLight ? "#1C1C1C" : "#FFFFFF",
+    }));
+  }, [selectedShirtColor]);
 
   // Load Google Fonts for text overlay
   useEffect(() => {
@@ -217,11 +246,20 @@ export default function DesignStudioPage() {
         y = size / 2 + textOverlay.fontSize / 3;
       }
 
-      // Draw text shadow for readability
-      ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
+      // Draw text shadow for readability – adaptive to text color brightness
+      const isTextDark =
+        parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 +
+        parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 +
+        parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128;
+      ctx.shadowColor = isTextDark ? "rgba(255, 255, 255, 0.6)" : "rgba(0, 0, 0, 0.7)";
       ctx.shadowBlur = 6;
       ctx.shadowOffsetX = 2;
       ctx.shadowOffsetY = 2;
+
+      // Draw text outline/stroke for extra contrast
+      ctx.strokeStyle = isTextDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)";
+      ctx.lineWidth = 3;
+      ctx.lineJoin = "round";
 
       // Word wrapping
       const maxWidth = size - 80;
@@ -253,6 +291,7 @@ export default function DesignStudioPage() {
       }
 
       for (const line of lines) {
+        ctx.strokeText(line, x, y);
         ctx.fillText(line, x, y);
         y += lineHeight;
       }
@@ -823,32 +862,132 @@ export default function DesignStudioPage() {
             </div>
           ) : currentDesign ? (
             <div>
-              {/* T-Shirt Mockup */}
+              {/* T-Shirt Color Selector */}
+              <div className="mb-3">
+                <label className="flex items-center gap-2 text-sm font-semibold mb-2 text-primary">
+                  <Palette className="w-4 h-4 text-accent" />
+                  Shirt Color
+                </label>
+                <div className="flex gap-2">
+                  {TSHIRT_COLORS.map((color) => (
+                    <button
+                      key={color.name}
+                      onClick={() => setSelectedShirtColor(color)}
+                      title={color.name}
+                      className={`relative w-9 h-9 rounded-full border-2 transition-all ${
+                        selectedShirtColor.name === color.name
+                          ? "border-accent scale-110 ring-2 ring-accent/30"
+                          : "border-border hover:scale-105"
+                      }`}
+                      style={{ backgroundColor: color.fill }}
+                    >
+                      {selectedShirtColor.name === color.name && (
+                        <Check
+                          className={`w-4 h-4 absolute inset-0 m-auto ${
+                            color.isLight ? "text-gray-700" : "text-white"
+                          }`}
+                        />
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">{selectedShirtColor.name}</p>
+              </div>
+
+              {/* Realistic T-Shirt Mockup */}
               <div className="border border-border rounded-xl overflow-hidden bg-gradient-to-b from-surface to-surface-raised relative aspect-square flex items-center justify-center">
                 <svg
                   viewBox="0 0 400 450"
                   className="w-full h-full"
                   xmlns="http://www.w3.org/2000/svg"
                 >
-                  <ellipse
-                    cx="200"
-                    cy="430"
-                    rx="120"
-                    ry="8"
-                    fill="#ffffff08"
-                  />
+                  <defs>
+                    {/* Fabric texture filter */}
+                    <filter id="fabric-texture" x="0%" y="0%" width="100%" height="100%">
+                      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" seed="2" result="noise" />
+                      <feColorMatrix type="saturate" values="0" in="noise" result="grayNoise" />
+                      <feBlend in="SourceGraphic" in2="grayNoise" mode="multiply" result="textured" />
+                      <feComposite in="textured" in2="SourceGraphic" operator="in" />
+                    </filter>
+                    {/* Subtle fold shadow gradients */}
+                    <linearGradient id="fold-left" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor={selectedShirtColor.foldDark} />
+                      <stop offset="40%" stopColor="transparent" />
+                    </linearGradient>
+                    <linearGradient id="fold-right" x1="1" y1="0" x2="0" y2="0">
+                      <stop offset="0%" stopColor={selectedShirtColor.foldDark} />
+                      <stop offset="40%" stopColor="transparent" />
+                    </linearGradient>
+                    <linearGradient id="fold-center" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor="transparent" />
+                      <stop offset="30%" stopColor={selectedShirtColor.foldLight} />
+                      <stop offset="50%" stopColor={selectedShirtColor.foldLight} />
+                      <stop offset="70%" stopColor="transparent" />
+                    </linearGradient>
+                    <linearGradient id="body-shading" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={selectedShirtColor.foldLight} />
+                      <stop offset="50%" stopColor="transparent" />
+                      <stop offset="100%" stopColor={selectedShirtColor.foldDark} />
+                    </linearGradient>
+                    {/* Clip path for design area on the shirt */}
+                    <clipPath id="shirt-clip">
+                      <path d="M100,60 L60,80 L20,140 L70,160 L90,110 L90,400 L310,400 L310,110 L330,160 L380,140 L340,80 L300,60 L260,50 Q230,80 200,80 Q170,80 140,50 Z" />
+                    </clipPath>
+                  </defs>
+
+                  {/* Drop shadow */}
+                  <ellipse cx="200" cy="432" rx="130" ry="10" fill="rgba(0,0,0,0.12)" />
+
+                  {/* Main shirt body with fabric texture */}
                   <path
                     d="M100,60 L60,80 L20,140 L70,160 L90,110 L90,400 L310,400 L310,110 L330,160 L380,140 L340,80 L300,60 L260,50 Q230,80 200,80 Q170,80 140,50 Z"
-                    fill="#1a1a2e"
-                    stroke="#27273a"
+                    fill={selectedShirtColor.fill}
+                    stroke={selectedShirtColor.stroke}
+                    strokeWidth="1.5"
+                    filter="url(#fabric-texture)"
+                  />
+
+                  {/* Collar/neckline */}
+                  <path
+                    d="M140,50 Q170,78 200,78 Q230,78 260,50"
+                    fill="none"
+                    stroke={selectedShirtColor.stroke}
                     strokeWidth="1.5"
                   />
+                  {/* Inner collar shadow */}
                   <path
-                    d="M140,50 Q170,75 200,75 Q230,75 260,50"
+                    d="M145,53 Q170,75 200,75 Q230,75 255,53"
                     fill="none"
-                    stroke="#27273a"
-                    strokeWidth="1"
+                    stroke={selectedShirtColor.foldDark}
+                    strokeWidth="2"
+                    opacity="0.5"
                   />
+
+                  {/* Fold/wrinkle highlights and shadows */}
+                  <g clipPath="url(#shirt-clip)" opacity="0.7">
+                    {/* Left sleeve fold */}
+                    <path d="M60,80 L90,110 L85,160 L55,120 Z" fill={selectedShirtColor.foldDark} opacity="0.3" />
+                    {/* Right sleeve fold */}
+                    <path d="M340,80 L310,110 L315,160 L345,120 Z" fill={selectedShirtColor.foldDark} opacity="0.3" />
+                    {/* Center vertical highlight */}
+                    <rect x="185" y="90" width="30" height="310" fill="url(#fold-center)" opacity="0.4" />
+                    {/* Left body fold shadow */}
+                    <rect x="90" y="110" width="60" height="290" fill="url(#fold-left)" opacity="0.5" />
+                    {/* Right body fold shadow */}
+                    <rect x="250" y="110" width="60" height="290" fill="url(#fold-right)" opacity="0.5" />
+                    {/* Overall vertical shading */}
+                    <rect x="90" y="80" width="220" height="320" fill="url(#body-shading)" opacity="0.3" />
+                    {/* Subtle horizontal wrinkle lines */}
+                    <line x1="110" y1="200" x2="290" y2="202" stroke={selectedShirtColor.foldDark} strokeWidth="0.5" opacity="0.3" />
+                    <line x1="120" y1="280" x2="280" y2="278" stroke={selectedShirtColor.foldDark} strokeWidth="0.5" opacity="0.25" />
+                    <line x1="105" y1="350" x2="295" y2="352" stroke={selectedShirtColor.foldDark} strokeWidth="0.5" opacity="0.2" />
+                  </g>
+
+                  {/* Seam lines for realism */}
+                  <line x1="90" y1="110" x2="90" y2="400" stroke={selectedShirtColor.stroke} strokeWidth="0.5" opacity="0.4" />
+                  <line x1="310" y1="110" x2="310" y2="400" stroke={selectedShirtColor.stroke} strokeWidth="0.5" opacity="0.4" />
+
+                  {/* Design image on shirt */}
                   <image
                     href={mockupImageUrl}
                     x="115"
@@ -857,6 +996,17 @@ export default function DesignStudioPage() {
                     height="170"
                     preserveAspectRatio="xMidYMid meet"
                     clipPath="inset(0)"
+                    opacity="0.92"
+                  />
+
+                  {/* Design blend overlay - makes design look printed on fabric */}
+                  <rect
+                    x="115"
+                    y="110"
+                    width="170"
+                    height="170"
+                    fill="url(#fold-center)"
+                    opacity="0.15"
                   />
                 </svg>
               </div>

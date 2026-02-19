@@ -44,7 +44,7 @@ export function buildEnhancedPrompt(
   }
 
   parts.push(
-    "IMPORTANT: Do NOT include any t-shirt, clothing, mockup, or garment in the image. Output ONLY the flat graphic artwork by itself on a plain solid white background. Vector style, centered composition, no text or lettering, high resolution, isolated design element suitable for printing."
+    "IMPORTANT: Do NOT include any t-shirt, clothing, mockup, or garment in the image. Output ONLY the flat graphic artwork by itself on a plain solid white background. Vector style, centered composition, no text or lettering, high resolution, isolated design element suitable for printing. LAYOUT: Leave at least 20% empty white space around all edges of the canvas. The main design must be centered within the middle 60% of the image. Keep clean empty margins on all four sides so there is room to add text without covering the artwork."
   );
 
   return parts.join(" ");
