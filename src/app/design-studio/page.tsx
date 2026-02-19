@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -12,6 +12,13 @@ import {
   Shuffle,
   X,
   Check,
+  Type,
+  Bold,
+  Italic,
+  Save,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
 } from "lucide-react";
 import type { Design } from "@/lib/types";
 
@@ -51,6 +58,40 @@ const VARIATION_MODIFIERS = [
   "with a more dynamic layout",
 ];
 
+const FONT_OPTIONS = [
+  { value: "Arial, sans-serif", label: "Arial" },
+  { value: "Impact, sans-serif", label: "Impact" },
+  { value: "'Bebas Neue', sans-serif", label: "Bebas Neue" },
+  { value: "Pacifico, cursive", label: "Pacifico" },
+  { value: "Roboto, sans-serif", label: "Roboto" },
+  { value: "'Courier New', monospace", label: "Courier" },
+];
+
+type TextPosition = "top" | "center" | "bottom";
+type TextAlign = "left" | "center" | "right";
+
+interface TextOverlay {
+  text: string;
+  font: string;
+  fontSize: number;
+  color: string;
+  position: TextPosition;
+  align: TextAlign;
+  bold: boolean;
+  italic: boolean;
+}
+
+const DEFAULT_TEXT_OVERLAY: TextOverlay = {
+  text: "",
+  font: "Arial, sans-serif",
+  fontSize: 40,
+  color: "#FFFFFF",
+  position: "bottom",
+  align: "center",
+  bold: false,
+  italic: false,
+};
+
 export default function DesignStudioPage() {
   const [prompt, setPrompt] = useState("");
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
@@ -64,6 +105,14 @@ export default function DesignStudioPage() {
   const [error, setError] = useState("");
   const [hasShop, setHasShop] = useState(false);
   const supabase = createClient();
+
+  // Text overlay state
+  const [showTextEditor, setShowTextEditor] = useState(false);
+  const [textOverlay, setTextOverlay] = useState<TextOverlay>(DEFAULT_TEXT_OVERLAY);
+  const [savingComposite, setSavingComposite] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [compositePreviewUrl, setCompositePreviewUrl] = useState<string | null>(null);
+  const [loadedImage, setLoadedImage] = useState<HTMLImageElement | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -91,6 +140,137 @@ export default function DesignStudioPage() {
     load();
   }, []);
 
+  // Load Google Fonts for text overlay
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const existing = document.getElementById("myt-google-fonts");
+    if (existing) return;
+    const link = document.createElement("link");
+    link.id = "myt-google-fonts";
+    link.rel = "stylesheet";
+    link.href =
+      "https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Pacifico&family=Roboto:wght@400;700&display=swap";
+    document.head.appendChild(link);
+  }, []);
+
+  // Load the design image when currentDesign changes
+  useEffect(() => {
+    if (!currentDesign) {
+      setLoadedImage(null);
+      return;
+    }
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => setLoadedImage(img);
+    img.onerror = () => setLoadedImage(null);
+    img.src = currentDesign.image_url;
+  }, [currentDesign?.image_url]);
+
+  // Render composite whenever text overlay or loaded image changes
+  const renderComposite = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !loadedImage) return;
+
+    const size = 1024;
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Draw the original design image
+    ctx.clearRect(0, 0, size, size);
+    ctx.drawImage(loadedImage, 0, 0, size, size);
+
+    // Draw text overlay if there's text
+    if (textOverlay.text.trim()) {
+      const fontWeight = textOverlay.bold ? "bold" : "normal";
+      const fontStyle = textOverlay.italic ? "italic" : "normal";
+      ctx.font = `${fontStyle} ${fontWeight} ${textOverlay.fontSize}px ${textOverlay.font}`;
+      ctx.fillStyle = textOverlay.color;
+
+      // Text alignment
+      if (textOverlay.align === "left") {
+        ctx.textAlign = "left";
+      } else if (textOverlay.align === "right") {
+        ctx.textAlign = "right";
+      } else {
+        ctx.textAlign = "center";
+      }
+
+      // Calculate X position based on alignment
+      let x: number;
+      if (textOverlay.align === "left") {
+        x = 40;
+      } else if (textOverlay.align === "right") {
+        x = size - 40;
+      } else {
+        x = size / 2;
+      }
+
+      // Calculate Y position
+      let y: number;
+      if (textOverlay.position === "top") {
+        y = textOverlay.fontSize + 30;
+      } else if (textOverlay.position === "bottom") {
+        y = size - 30;
+      } else {
+        y = size / 2 + textOverlay.fontSize / 3;
+      }
+
+      // Draw text shadow for readability
+      ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
+      ctx.shadowBlur = 6;
+      ctx.shadowOffsetX = 2;
+      ctx.shadowOffsetY = 2;
+
+      // Word wrapping
+      const maxWidth = size - 80;
+      const words = textOverlay.text.split(" ");
+      const lines: string[] = [];
+      let currentLine = words[0] || "";
+
+      for (let i = 1; i < words.length; i++) {
+        const testLine = currentLine + " " + words[i];
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidth) {
+          lines.push(currentLine);
+          currentLine = words[i];
+        } else {
+          currentLine = testLine;
+        }
+      }
+      lines.push(currentLine);
+
+      // Adjust Y for multi-line centering
+      const lineHeight = textOverlay.fontSize * 1.2;
+      const totalHeight = lines.length * lineHeight;
+      if (textOverlay.position === "center") {
+        y = (size - totalHeight) / 2 + textOverlay.fontSize;
+      } else if (textOverlay.position === "top") {
+        y = textOverlay.fontSize + 30;
+      } else {
+        y = size - totalHeight - 10 + textOverlay.fontSize;
+      }
+
+      for (const line of lines) {
+        ctx.fillText(line, x, y);
+        y += lineHeight;
+      }
+
+      // Reset shadow
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+    }
+
+    setCompositePreviewUrl(canvas.toDataURL("image/png"));
+  }, [loadedImage, textOverlay]);
+
+  useEffect(() => {
+    renderComposite();
+  }, [renderComposite]);
+
   function toggleColor(colorName: string) {
     setSelectedColors((prev) => {
       if (prev.includes(colorName)) {
@@ -109,6 +289,9 @@ export default function DesignStudioPage() {
     if (!designPrompt.trim()) return;
     setError("");
     setGenerating(true);
+    setShowTextEditor(false);
+    setTextOverlay(DEFAULT_TEXT_OVERLAY);
+    setCompositePreviewUrl(null);
 
     try {
       const res = await fetch("/api/generate-design", {
@@ -157,8 +340,55 @@ export default function DesignStudioPage() {
     await generateDesign(variedPrompt, lastStyleUsed, lastColorsUsed);
   }
 
+  async function handleSaveComposite() {
+    if (!currentDesign || !canvasRef.current) return;
+    setError("");
+    setSavingComposite(true);
+
+    try {
+      const imageData = canvasRef.current.toDataURL("image/png");
+      const promptWithText = textOverlay.text.trim()
+        ? `${currentDesign.prompt} [text: "${textOverlay.text.trim()}"]`
+        : currentDesign.prompt;
+
+      const res = await fetch("/api/save-composite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageData,
+          prompt: promptWithText,
+          style: currentDesign.style,
+          colors: currentDesign.colors,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      setCurrentDesign(data.design);
+      setDesigns((prev) => [data.design, ...prev]);
+      setShowTextEditor(false);
+      setTextOverlay(DEFAULT_TEXT_OVERLAY);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to save composite design";
+      setError(message);
+    } finally {
+      setSavingComposite(false);
+    }
+  }
+
+  // The image to show on the mockup: composite preview when editing text, otherwise original
+  const mockupImageUrl =
+    showTextEditor && compositePreviewUrl
+      ? compositePreviewUrl
+      : currentDesign?.image_url;
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
+      {/* Hidden canvas for compositing */}
+      <canvas ref={canvasRef} className="hidden" />
+
       {/* Header */}
       <div className="text-center mb-10">
         <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-primary">
@@ -328,6 +558,222 @@ export default function DesignStudioPage() {
             </button>
           </form>
 
+          {/* Text Overlay Editor */}
+          {showTextEditor && currentDesign && (
+            <div className="mt-6 p-5 border border-accent/30 rounded-xl bg-surface-raised space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-primary flex items-center gap-2">
+                  <Type className="w-4 h-4 text-accent" />
+                  Text Overlay
+                </h3>
+                <button
+                  onClick={() => {
+                    setShowTextEditor(false);
+                    setTextOverlay(DEFAULT_TEXT_OVERLAY);
+                    setCompositePreviewUrl(null);
+                  }}
+                  className="text-muted-foreground hover:text-primary"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Text input */}
+              <div>
+                <label className="block text-xs font-medium mb-1 text-muted-foreground">
+                  Text
+                </label>
+                <input
+                  type="text"
+                  value={textOverlay.text}
+                  onChange={(e) =>
+                    setTextOverlay((prev) => ({
+                      ...prev,
+                      text: e.target.value.slice(0, 100),
+                    }))
+                  }
+                  placeholder="Enter text to add..."
+                  maxLength={100}
+                  className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-primary placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                />
+                <p className="text-xs text-muted-foreground mt-1 text-right">
+                  {textOverlay.text.length}/100
+                </p>
+              </div>
+
+              {/* Font selector + size */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1 text-muted-foreground">
+                    Font
+                  </label>
+                  <select
+                    value={textOverlay.font}
+                    onChange={(e) =>
+                      setTextOverlay((prev) => ({
+                        ...prev,
+                        font: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent"
+                  >
+                    {FONT_OPTIONS.map((f) => (
+                      <option key={f.value} value={f.value}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1 text-muted-foreground">
+                    Size: {textOverlay.fontSize}px
+                  </label>
+                  <input
+                    type="range"
+                    min={10}
+                    max={100}
+                    value={textOverlay.fontSize}
+                    onChange={(e) =>
+                      setTextOverlay((prev) => ({
+                        ...prev,
+                        fontSize: Number(e.target.value),
+                      }))
+                    }
+                    className="w-full accent-accent mt-1"
+                  />
+                </div>
+              </div>
+
+              {/* Color picker + Bold/Italic */}
+              <div className="flex items-end gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium mb-1 text-muted-foreground">
+                    Text Color
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={textOverlay.color}
+                      onChange={(e) =>
+                        setTextOverlay((prev) => ({
+                          ...prev,
+                          color: e.target.value,
+                        }))
+                      }
+                      className="w-10 h-10 rounded border border-border cursor-pointer bg-transparent"
+                    />
+                    <span className="text-xs text-muted-foreground font-mono">
+                      {textOverlay.color.toUpperCase()}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setTextOverlay((prev) => ({ ...prev, bold: !prev.bold }))
+                    }
+                    className={`p-2 rounded-lg border text-sm transition-colors ${
+                      textOverlay.bold
+                        ? "border-accent bg-accent/10 text-accent"
+                        : "border-border text-muted-foreground hover:text-primary"
+                    }`}
+                  >
+                    <Bold className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setTextOverlay((prev) => ({
+                        ...prev,
+                        italic: !prev.italic,
+                      }))
+                    }
+                    className={`p-2 rounded-lg border text-sm transition-colors ${
+                      textOverlay.italic
+                        ? "border-accent bg-accent/10 text-accent"
+                        : "border-border text-muted-foreground hover:text-primary"
+                    }`}
+                  >
+                    <Italic className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Position */}
+              <div>
+                <label className="block text-xs font-medium mb-1 text-muted-foreground">
+                  Position
+                </label>
+                <div className="flex gap-2">
+                  {(["top", "center", "bottom"] as const).map((pos) => (
+                    <button
+                      key={pos}
+                      type="button"
+                      onClick={() =>
+                        setTextOverlay((prev) => ({ ...prev, position: pos }))
+                      }
+                      className={`flex-1 py-2 rounded-lg border text-xs font-medium capitalize transition-colors ${
+                        textOverlay.position === pos
+                          ? "border-accent bg-accent/10 text-accent"
+                          : "border-border text-muted-foreground hover:text-primary"
+                      }`}
+                    >
+                      {pos}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Alignment */}
+              <div>
+                <label className="block text-xs font-medium mb-1 text-muted-foreground">
+                  Alignment
+                </label>
+                <div className="flex gap-2">
+                  {(
+                    [
+                      { value: "left", icon: AlignLeft },
+                      { value: "center", icon: AlignCenter },
+                      { value: "right", icon: AlignRight },
+                    ] as const
+                  ).map(({ value, icon: Icon }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() =>
+                        setTextOverlay((prev) => ({ ...prev, align: value }))
+                      }
+                      className={`flex-1 py-2 rounded-lg border flex items-center justify-center transition-colors ${
+                        textOverlay.align === value
+                          ? "border-accent bg-accent/10 text-accent"
+                          : "border-border text-muted-foreground hover:text-primary"
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Save button */}
+              <button
+                onClick={handleSaveComposite}
+                disabled={savingComposite || !textOverlay.text.trim()}
+                className="w-full bg-accent text-accent-foreground py-2.5 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
+              >
+                {savingComposite ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                {savingComposite
+                  ? "Saving..."
+                  : "Save Design with Text"}
+              </button>
+            </div>
+          )}
+
           {/* Gallery */}
           {designs.length > 0 && (
             <div className="mt-10">
@@ -339,6 +785,9 @@ export default function DesignStudioPage() {
                     onClick={() => {
                       setCurrentDesign(design);
                       setLastPromptUsed(design.prompt);
+                      setShowTextEditor(false);
+                      setTextOverlay(DEFAULT_TEXT_OVERLAY);
+                      setCompositePreviewUrl(null);
                     }}
                     className={`aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
                       currentDesign?.id === design.id
@@ -401,7 +850,7 @@ export default function DesignStudioPage() {
                     strokeWidth="1"
                   />
                   <image
-                    href={currentDesign.image_url}
+                    href={mockupImageUrl}
                     x="115"
                     y="110"
                     width="170"
@@ -431,6 +880,17 @@ export default function DesignStudioPage() {
                   Variation
                 </button>
               </div>
+
+              {/* Add Text button */}
+              {!showTextEditor && (
+                <button
+                  onClick={() => setShowTextEditor(true)}
+                  className="w-full mt-2 flex items-center justify-center gap-2 py-2.5 border border-border rounded-lg text-sm font-medium hover:bg-surface-raised transition-colors text-primary"
+                >
+                  <Type className="w-4 h-4" />
+                  Add Text
+                </button>
+              )}
 
               {/* Publish / Download */}
               <div className="flex gap-2 mt-2">
