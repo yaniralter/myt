@@ -31,7 +31,9 @@ export function buildEnhancedPrompt(
 ): string {
   const parts: string[] = [];
 
-  parts.push(`T-shirt graphic design: ${userPrompt}.`);
+  parts.push(
+    `A flat graphic artwork illustration of: ${userPrompt}.`
+  );
 
   if (style && STYLE_INSTRUCTIONS[style]) {
     parts.push(`Art style: ${STYLE_INSTRUCTIONS[style]}.`);
@@ -42,7 +44,7 @@ export function buildEnhancedPrompt(
   }
 
   parts.push(
-    "Clean vector graphic, transparent or solid white background, centered composition, suitable for screen printing, no text or lettering, high resolution, isolated design element."
+    "IMPORTANT: Do NOT include any t-shirt, clothing, mockup, or garment in the image. Output ONLY the flat graphic artwork by itself on a plain solid white background. Vector style, centered composition, no text or lettering, high resolution, isolated design element suitable for printing."
   );
 
   return parts.join(" ");
