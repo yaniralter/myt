@@ -32,7 +32,7 @@ export function buildEnhancedPrompt(
   const parts: string[] = [];
 
   parts.push(
-    `A simple centered icon or illustration of: ${userPrompt}.`
+    `Create a flat graphic illustration of: ${userPrompt}. This is standalone artwork — just the design element itself as a clean graphic on a plain white background. Icon style, centered composition, vector art quality.`
   );
 
   if (style && STYLE_INSTRUCTIONS[style]) {
@@ -44,7 +44,7 @@ export function buildEnhancedPrompt(
   }
 
   parts.push(
-    "CRITICAL LAYOUT RULES: The artwork must occupy ONLY 30-40% of the total canvas area. It must be a small, centered icon/illustration with LOTS of pure white (#FFFFFF) empty space surrounding it on ALL sides. Leave huge white margins — at least 30% empty space above, below, left, and right. Minimalist composition with maximum breathing room. Think of a small logo centered on a large white page. Do NOT fill the canvas. Do NOT include any t-shirt, clothing, mockup, or garment. Output ONLY the flat graphic artwork on a plain solid pure white background. No text or lettering. High resolution, isolated design element suitable for printing."
+    "CRITICAL LAYOUT RULES: The artwork must occupy ONLY 30-40% of the total canvas area. It must be a small, centered icon or illustration with LOTS of pure white (#FFFFFF) empty space surrounding it on ALL sides. Leave at least 30% white margin above, below, left, and right. Think of a small logo centered on a large white page. Do NOT fill the canvas. Output ONLY the flat graphic artwork on a solid pure white (#FFFFFF) background. No text, no lettering, no words. High resolution isolated design element."
   );
 
   return parts.join(" ");
