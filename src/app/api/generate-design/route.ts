@@ -52,6 +52,7 @@ export async function POST(request: Request) {
   }
 
   const enhancedPrompt = buildEnhancedPrompt(prompt.trim(), style, colors);
+  console.log("[DALL-E] Prompt being sent:", enhancedPrompt);
 
   try {
     const response = await getOpenAI().images.generate({
