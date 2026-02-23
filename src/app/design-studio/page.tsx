@@ -22,6 +22,7 @@ import {
   Palette,
   Move,
   Image as ImageIcon,
+  Upload,
 } from "lucide-react";
 import type { Design } from "@/lib/types";
 
@@ -153,6 +154,14 @@ export default function DesignStudioPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [compositePreviewUrl, setCompositePreviewUrl] = useState<string | null>(null);
   const [loadedImage, setLoadedImage] = useState<HTMLImageElement | null>(null);
+
+  // Manual save state — designs are NOT saved to gallery automatically
+  const [isDesignSaved, setIsDesignSaved] = useState(false);
+  const [savingToGallery, setSavingToGallery] = useState(false);
+
+  // Custom image upload
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -350,8 +359,7 @@ export default function DesignStudioPage() {
     if (!designPrompt.trim()) return;
     setError("");
     setGenerating(true);
-    setShowTextEditor(false);
-    setTextOverlay(DEFAULT_TEXT_OVERLAY);
+    // Preserve text overlay state across regenerate/variation
     setCompositePreviewUrl(null);
     setPrintifyData(null);
     setMockupError("");
@@ -370,14 +378,25 @@ export default function DesignStudioPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      setCurrentDesign(data.design);
-      setDesigns((prev) => [data.design, ...prev]);
+      // Create a temporary design object (NOT saved to DB yet)
+      const tempDesign: Design = {
+        id: `temp-${Date.now()}`,
+        user_id: "",
+        prompt: data.prompt,
+        image_url: data.imageUrl,
+        style: data.style,
+        colors: data.colors,
+        created_at: new Date().toISOString(),
+      };
+
+      setCurrentDesign(tempDesign);
+      setIsDesignSaved(false);
       setLastPromptUsed(designPrompt.trim());
       setLastStyleUsed(style);
       setLastColorsUsed(colors);
 
       // Fetch Printify mockups in background (non-blocking)
-      fetchPrintifyMockups(data.design);
+      fetchPrintifyMockups(tempDesign);
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : "Failed to generate design";
@@ -433,6 +452,7 @@ export default function DesignStudioPage() {
 
       setCurrentDesign(data.design);
       setDesigns((prev) => [data.design, ...prev]);
+      setIsDesignSaved(true);
       setShowTextEditor(false);
       setTextOverlay(DEFAULT_TEXT_OVERLAY);
 
@@ -444,6 +464,86 @@ export default function DesignStudioPage() {
       setError(message);
     } finally {
       setSavingComposite(false);
+    }
+  }
+
+  async function handleSaveToGallery() {
+    if (!currentDesign || isDesignSaved) return;
+    setError("");
+    setSavingToGallery(true);
+
+    try {
+      const res = await fetch("/api/save-design", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageUrl: currentDesign.image_url,
+          prompt: currentDesign.prompt,
+          style: currentDesign.style,
+          colors: currentDesign.colors,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      setCurrentDesign(data.design);
+      setDesigns((prev) => [data.design, ...prev]);
+      setIsDesignSaved(true);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to save design";
+      setError(message);
+    } finally {
+      setSavingToGallery(false);
+    }
+  }
+
+  async function handleUploadImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setError("");
+    setUploading(true);
+    setCompositePreviewUrl(null);
+    setPrintifyData(null);
+    setMockupError("");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/upload-design", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      const tempDesign: Design = {
+        id: `temp-${Date.now()}`,
+        user_id: "",
+        prompt: file.name.replace(/\.[^.]+$/, ""),
+        image_url: data.imageUrl,
+        style: null,
+        colors: null,
+        created_at: new Date().toISOString(),
+      };
+
+      setCurrentDesign(tempDesign);
+      setIsDesignSaved(false);
+
+      // Fetch Printify mockups in background
+      fetchPrintifyMockups(tempDesign);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to upload image";
+      setError(message);
+    } finally {
+      setUploading(false);
+      // Reset file input so the same file can be selected again
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
@@ -618,19 +718,41 @@ export default function DesignStudioPage() {
               )}
             </div>
 
-            {/* Generate Button */}
-            <button
-              type="submit"
-              disabled={generating || !prompt.trim()}
-              className="w-full bg-accent text-accent-foreground py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {generating ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Sparkles className="w-4 h-4" />
-              )}
-              {generating ? "Generating design..." : "Generate Design"}
-            </button>
+            {/* Generate + Upload Buttons */}
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={generating || uploading || !prompt.trim()}
+                className="flex-1 bg-accent text-accent-foreground py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {generating ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4" />
+                )}
+                {generating ? "Generating..." : "Generate Design"}
+              </button>
+              <button
+                type="button"
+                disabled={generating || uploading}
+                onClick={() => fileInputRef.current?.click()}
+                className="px-4 py-3 border border-border rounded-lg font-medium hover:bg-surface-raised transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-primary text-sm"
+              >
+                {uploading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Upload className="w-4 h-4" />
+                )}
+                {uploading ? "Uploading..." : "Upload"}
+              </button>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleUploadImage}
+              className="hidden"
+            />
           </form>
 
           {/* Text Overlay Editor */}
@@ -905,6 +1027,7 @@ export default function DesignStudioPage() {
                     key={design.id}
                     onClick={() => {
                       setCurrentDesign(design);
+                      setIsDesignSaved(true); // Gallery designs are already saved
                       setLastPromptUsed(design.prompt);
                       setShowTextEditor(false);
                       setTextOverlay(DEFAULT_TEXT_OVERLAY);
@@ -1134,9 +1257,31 @@ export default function DesignStudioPage() {
                 </button>
               )}
 
+              {/* Save to Gallery */}
+              {!isDesignSaved && (
+                <button
+                  onClick={handleSaveToGallery}
+                  disabled={savingToGallery}
+                  className="w-full mt-2 bg-green-600 text-white py-2.5 rounded-lg font-medium hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
+                >
+                  {savingToGallery ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4" />
+                  )}
+                  {savingToGallery ? "Saving..." : "Save to Gallery"}
+                </button>
+              )}
+              {isDesignSaved && (
+                <p className="mt-2 text-xs text-green-600 text-center flex items-center justify-center gap-1">
+                  <Check className="w-3 h-3" />
+                  Saved to gallery
+                </p>
+              )}
+
               {/* Publish / Download */}
               <div className="flex gap-2 mt-2">
-                {hasShop ? (
+                {hasShop && isDesignSaved ? (
                   <Link
                     href={`/product/new?design=${currentDesign.id}${printifyData ? `&printifyProduct=${printifyData.printifyProductId}` : ""}`}
                     className="flex-1 bg-accent text-accent-foreground py-2.5 rounded-lg font-medium hover:opacity-90 flex items-center justify-center gap-2 text-sm"
@@ -1144,6 +1289,14 @@ export default function DesignStudioPage() {
                     <ShoppingBag className="w-4 h-4" />
                     Publish to Shop
                   </Link>
+                ) : hasShop && !isDesignSaved ? (
+                  <button
+                    disabled
+                    className="flex-1 bg-accent/50 text-accent-foreground py-2.5 rounded-lg font-medium flex items-center justify-center gap-2 text-sm opacity-50 cursor-not-allowed"
+                  >
+                    <ShoppingBag className="w-4 h-4" />
+                    Save first to publish
+                  </button>
                 ) : (
                   <Link
                     href="/shop/new"
