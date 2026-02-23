@@ -5,35 +5,144 @@ const PRINTIFY_API_BASE = "https://api.printify.com/v1";
 const BLUEPRINT_ID = 6;
 const PRINT_PROVIDER_ID = 99;
 
-// Known color-keyed variant IDs for Blueprint 6 / Provider 99
-// Each entry maps a color name to an array of variant IDs (one per size S-2XL)
-const COLOR_VARIANTS: Record<string, number[]> = {
-  White: [17116, 17117, 17118, 17119, 17120],
-  Black: [17390, 17391, 17392, 17393, 17394],
-  "Sport Grey": [17350, 17351, 17352, 17353, 17354],
-  Navy: [17308, 17309, 17310, 17311, 17312],
-  Red: [17336, 17337, 17338, 17339, 17340],
-};
+// Cached shop ID (auto-discovered on first use)
+let _cachedShopId: string | null = null;
 
-// All variant IDs flattened (for product creation with all colors)
-const ALL_VARIANT_IDS = Object.values(COLOR_VARIANTS).flat();
+// Cached variant IDs per color (fetched from catalog on first use)
+let _cachedColorVariants: Record<string, number[]> | null = null;
+
+// Fallback variant IDs in case catalog fetch fails (White only, known-good)
+const FALLBACK_WHITE_VARIANTS = [17116, 17117, 17118, 17119, 17120];
+
+function getApiKey(): string {
+  const key = process.env.PRINTIFY_API_KEY;
+  if (!key) throw new Error("PRINTIFY_API_KEY is not set");
+  return key;
+}
 
 async function printifyFetch(path: string, options: RequestInit = {}) {
-  const res = await fetch(`${PRINTIFY_API_BASE}${path}`, {
+  const url = `${PRINTIFY_API_BASE}${path}`;
+  console.log(`[Printify] ${options.method || "GET"} ${url}`);
+
+  const res = await fetch(url, {
     ...options,
     headers: {
-      Authorization: `Bearer ${process.env.PRINTIFY_API_KEY}`,
+      Authorization: `Bearer ${getApiKey()}`,
       "Content-Type": "application/json",
       ...options.headers,
     },
   });
 
   if (!res.ok) {
-    const error = await res.text();
-    throw new Error(`Printify API error: ${res.status} - ${error}`);
+    const errorText = await res.text();
+    console.error(`[Printify] ${res.status} response from ${url}:`, errorText);
+    throw new Error(`Printify API ${res.status}: ${errorText}`);
   }
 
   return res.json();
+}
+
+/** Discover the shop ID from Printify API (auto-finds the user's first shop) */
+async function resolveShopId(): Promise<string> {
+  // 1. If we've already resolved it, return cached value
+  if (_cachedShopId) return _cachedShopId;
+
+  // 2. If env var is set and looks like a real ID (not a placeholder), use it
+  const envShopId = process.env.PRINTIFY_SHOP_ID;
+  if (envShopId && !envShopId.startsWith("your_") && envShopId.length > 3) {
+    _cachedShopId = envShopId;
+    return envShopId;
+  }
+
+  // 3. Auto-discover from the API
+  console.log("[Printify] PRINTIFY_SHOP_ID is placeholder, auto-discovering...");
+  const shops = await printifyFetch("/shops.json");
+
+  if (!Array.isArray(shops) || shops.length === 0) {
+    throw new Error(
+      "No Printify shops found. Create a shop at printify.com first, then set PRINTIFY_SHOP_ID in .env.local"
+    );
+  }
+
+  _cachedShopId = String(shops[0].id);
+  console.log(`[Printify] Auto-discovered shop ID: ${_cachedShopId} (${shops[0].title})`);
+  return _cachedShopId;
+}
+
+/**
+ * Fetch variant IDs from the Printify catalog for Blueprint 6 / Provider 99.
+ * Groups them by color name so we can create multi-color products.
+ */
+async function resolveColorVariants(): Promise<Record<string, number[]>> {
+  if (_cachedColorVariants) return _cachedColorVariants;
+
+  console.log("[Printify] Fetching catalog variants for blueprint 6 / provider 99...");
+
+  try {
+    const variants = await printifyFetch(
+      `/catalog/blueprints/${BLUEPRINT_ID}/print_providers/${PRINT_PROVIDER_ID}/variants.json`
+    );
+
+    // Group variant IDs by color
+    const colorMap: Record<string, number[]> = {};
+
+    for (const v of variants) {
+      // Printify variant objects have: id, title, options (with color, size)
+      const color: string =
+        v.options?.color || v.title?.split(" / ")?.[0] || "Unknown";
+
+      if (!colorMap[color]) colorMap[color] = [];
+      colorMap[color].push(v.id);
+    }
+
+    console.log(
+      `[Printify] Found ${Object.keys(colorMap).length} colors:`,
+      Object.keys(colorMap).join(", ")
+    );
+
+    _cachedColorVariants = colorMap;
+    return colorMap;
+  } catch (err) {
+    console.warn("[Printify] Failed to fetch catalog variants:", err);
+    // Return minimal fallback
+    _cachedColorVariants = { White: FALLBACK_WHITE_VARIANTS };
+    return _cachedColorVariants;
+  }
+}
+
+/** Pick the best matching variant IDs for our target colors */
+const TARGET_COLORS = ["White", "Black", "Sport Grey", "Navy", "Red"];
+
+function pickTargetColorVariants(
+  catalogColors: Record<string, number[]>
+): { allVariantIds: number[]; colorVariants: Record<string, number[]> } {
+  const colorVariants: Record<string, number[]> = {};
+  const allVariantIds: number[] = [];
+
+  for (const target of TARGET_COLORS) {
+    // Try exact match first, then fuzzy
+    const match =
+      catalogColors[target] ||
+      Object.entries(catalogColors).find(([k]) =>
+        k.toLowerCase().includes(target.toLowerCase())
+      )?.[1];
+
+    if (match) {
+      colorVariants[target] = match;
+      allVariantIds.push(...match);
+    }
+  }
+
+  // If nothing matched, at least use White or the first available color
+  if (allVariantIds.length === 0) {
+    const firstColor = Object.entries(catalogColors)[0];
+    if (firstColor) {
+      colorVariants[firstColor[0]] = firstColor[1];
+      allVariantIds.push(...firstColor[1]);
+    }
+  }
+
+  return { allVariantIds, colorVariants };
 }
 
 /** Upload a design image to Printify's image library */
@@ -41,31 +150,32 @@ export async function uploadImageToPrintify(
   imageUrl: string,
   fileName: string = "design.png"
 ): Promise<{ id: string; preview_url: string }> {
+  console.log("[Printify] Uploading image:", imageUrl.slice(0, 80) + "...");
   return printifyFetch("/uploads/images.json", {
     method: "POST",
     body: JSON.stringify({ file_name: fileName, url: imageUrl }),
   });
 }
 
-/** Create a Printify product with all color variants */
+/** Create a Printify product with resolved color variants */
 export async function createPrintifyProduct(params: {
   title: string;
   description: string;
-  imageUrl: string;
-  printifyImageId?: string;
+  printifyImageId: string;
 }) {
-  const shopId = process.env.PRINTIFY_SHOP_ID;
+  const shopId = await resolveShopId();
+  const catalogColors = await resolveColorVariants();
+  const { allVariantIds, colorVariants } = pickTargetColorVariants(catalogColors);
 
-  const variants = ALL_VARIANT_IDS.map((id) => ({
+  console.log(
+    `[Printify] Creating product with ${allVariantIds.length} variants across ${Object.keys(colorVariants).length} colors`
+  );
+
+  const variants = allVariantIds.map((id) => ({
     id,
     price: 0,
     is_enabled: true,
   }));
-
-  // Use either the Printify-uploaded image ID or fall back to raw URL
-  const imageEntry = params.printifyImageId
-    ? { id: params.printifyImageId, x: 0.5, y: 0.5, scale: 1, angle: 0 }
-    : { id: "design", src: params.imageUrl, x: 0.5, y: 0.5, scale: 1, angle: 0 };
 
   const product = await printifyFetch(`/shops/${shopId}/products.json`, {
     method: "POST",
@@ -77,11 +187,19 @@ export async function createPrintifyProduct(params: {
       variants,
       print_areas: [
         {
-          variant_ids: ALL_VARIANT_IDS,
+          variant_ids: allVariantIds,
           placeholders: [
             {
               position: "front",
-              images: [imageEntry],
+              images: [
+                {
+                  id: params.printifyImageId,
+                  x: 0.5,
+                  y: 0.5,
+                  scale: 1,
+                  angle: 0,
+                },
+              ],
             },
           ],
         },
@@ -89,7 +207,7 @@ export async function createPrintifyProduct(params: {
     }),
   });
 
-  return product;
+  return { product, colorVariants };
 }
 
 /** Fetch a product to get its images/mockups */
@@ -105,23 +223,24 @@ export async function getProduct(
     is_default: boolean;
   }>;
 }> {
-  const shopId = process.env.PRINTIFY_SHOP_ID;
+  const shopId = await resolveShopId();
   return printifyFetch(`/shops/${shopId}/products/${productId}.json`);
 }
 
 /**
  * Map mockup images to color names.
- * Printify product images have variant_ids — we match those to our color map.
+ * Printify product images have variant_ids — we match those to our resolved color map.
  */
 export function mapMockupsToColors(
-  images: Array<{ src: string; variant_ids: number[]; position: string }>
+  images: Array<{ src: string; variant_ids: number[]; position: string }>,
+  colorVariants: Record<string, number[]>
 ): Record<string, string> {
   const colorMockups: Record<string, string> = {};
 
   for (const img of images) {
     if (img.position !== "front") continue;
 
-    for (const [colorName, variantIds] of Object.entries(COLOR_VARIANTS)) {
+    for (const [colorName, variantIds] of Object.entries(colorVariants)) {
       const hasMatch = img.variant_ids.some((vid) => variantIds.includes(vid));
       if (hasMatch && !colorMockups[colorName]) {
         colorMockups[colorName] = img.src;
@@ -134,7 +253,6 @@ export function mapMockupsToColors(
 
 /**
  * Full workflow: upload image → create product → return mockup URLs per color.
- * Returns the Printify product ID and a mapping of color name → mockup image URL.
  */
 export async function createProductAndGetMockups(params: {
   title: string;
@@ -145,26 +263,30 @@ export async function createProductAndGetMockups(params: {
   mockups: Record<string, string>;
   defaultMockup: string | null;
 }> {
-  // Step 1: Upload image to Printify
-  let printifyImageId: string | undefined;
-  try {
-    const uploaded = await uploadImageToPrintify(params.imageUrl);
-    printifyImageId = uploaded.id;
-  } catch {
-    console.warn("[Printify] Image upload failed, using raw URL fallback");
-  }
+  // Step 1: Upload image to Printify (required — raw URLs are not supported)
+  console.log("[Printify] Step 1: Uploading image to Printify...");
+  const uploaded = await uploadImageToPrintify(params.imageUrl);
+  console.log("[Printify] Image uploaded, ID:", uploaded.id);
 
-  // Step 2: Create the product
-  const product = await createPrintifyProduct({
-    ...params,
-    printifyImageId,
+  // Step 2: Create the product with all color variants
+  console.log("[Printify] Step 2: Creating product...");
+  const { product, colorVariants } = await createPrintifyProduct({
+    title: params.title,
+    description: params.description,
+    printifyImageId: uploaded.id,
   });
+  console.log("[Printify] Product created, ID:", product.id);
 
   // Step 3: Map product images to colors
-  const mockups = mapMockupsToColors(product.images || []);
+  const images = product.images || [];
+  console.log(`[Printify] Step 3: Product has ${images.length} mockup images`);
+
+  const mockups = mapMockupsToColors(images, colorVariants);
+  console.log("[Printify] Color mockups mapped:", Object.keys(mockups));
+
   const defaultMockup =
-    product.images?.find((img: { is_default: boolean }) => img.is_default)?.src ||
-    product.images?.[0]?.src ||
+    images.find((img: { is_default: boolean }) => img.is_default)?.src ||
+    images[0]?.src ||
     null;
 
   return {
@@ -189,7 +311,7 @@ export async function createPrintifyOrder(params: {
     country: string;
   };
 }) {
-  const shopId = process.env.PRINTIFY_SHOP_ID;
+  const shopId = await resolveShopId();
 
   const order = await printifyFetch(`/shops/${shopId}/orders.json`, {
     method: "POST",
@@ -198,7 +320,7 @@ export async function createPrintifyOrder(params: {
       line_items: [
         {
           product_id: params.productId,
-          variant_id: params.variantId || 17118,
+          variant_id: params.variantId || FALLBACK_WHITE_VARIANTS[2], // default to L
           quantity: 1,
         },
       ],
@@ -210,5 +332,11 @@ export async function createPrintifyOrder(params: {
   return order;
 }
 
-/** Exported color list for frontend use */
-export const PRINTIFY_COLORS = Object.keys(COLOR_VARIANTS);
+/** Check if Printify API key is configured */
+export function isPrintifyConfigured(): boolean {
+  const key = process.env.PRINTIFY_API_KEY;
+  return !!key && key.length > 10 && !key.startsWith("your_");
+}
+
+/** Exported target color names for frontend use */
+export const PRINTIFY_COLORS = TARGET_COLORS;
