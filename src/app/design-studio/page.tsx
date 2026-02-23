@@ -21,6 +21,7 @@ import {
   AlignRight,
   Palette,
   Move,
+  Image as ImageIcon,
 } from "lucide-react";
 import type { Design } from "@/lib/types";
 
@@ -69,8 +70,10 @@ const FONT_OPTIONS = [
   { value: "'Courier New', monospace", label: "Courier" },
 ];
 
-interface TShirtColor {
+// Shirt colors for the SVG fallback mockup and Printify color selector
+interface ShirtColor {
   name: string;
+  printifyName: string; // Maps to Printify's color name
   fill: string;
   stroke: string;
   foldLight: string;
@@ -78,12 +81,12 @@ interface TShirtColor {
   isLight: boolean;
 }
 
-const TSHIRT_COLORS: TShirtColor[] = [
-  { name: "White", fill: "#F5F5F5", stroke: "#D4D4D4", foldLight: "rgba(255,255,255,0.5)", foldDark: "rgba(0,0,0,0.06)", isLight: true },
-  { name: "Black", fill: "#1C1C1C", stroke: "#333333", foldLight: "rgba(255,255,255,0.08)", foldDark: "rgba(0,0,0,0.25)", isLight: false },
-  { name: "Heather Gray", fill: "#9CA3AF", stroke: "#7B8294", foldLight: "rgba(255,255,255,0.25)", foldDark: "rgba(0,0,0,0.12)", isLight: true },
-  { name: "Navy Blue", fill: "#1E3A5F", stroke: "#152C4A", foldLight: "rgba(255,255,255,0.08)", foldDark: "rgba(0,0,0,0.2)", isLight: false },
-  { name: "Red", fill: "#DC2626", stroke: "#B91C1C", foldLight: "rgba(255,255,255,0.12)", foldDark: "rgba(0,0,0,0.15)", isLight: false },
+const SHIRT_COLORS: ShirtColor[] = [
+  { name: "White", printifyName: "White", fill: "#F5F5F5", stroke: "#D4D4D4", foldLight: "rgba(255,255,255,0.5)", foldDark: "rgba(0,0,0,0.06)", isLight: true },
+  { name: "Black", printifyName: "Black", fill: "#1C1C1C", stroke: "#333333", foldLight: "rgba(255,255,255,0.08)", foldDark: "rgba(0,0,0,0.25)", isLight: false },
+  { name: "Gray", printifyName: "Sport Grey", fill: "#9CA3AF", stroke: "#7B8294", foldLight: "rgba(255,255,255,0.25)", foldDark: "rgba(0,0,0,0.12)", isLight: true },
+  { name: "Navy", printifyName: "Navy", fill: "#1E3A5F", stroke: "#152C4A", foldLight: "rgba(255,255,255,0.08)", foldDark: "rgba(0,0,0,0.2)", isLight: false },
+  { name: "Red", printifyName: "Red", fill: "#DC2626", stroke: "#B91C1C", foldLight: "rgba(255,255,255,0.12)", foldDark: "rgba(0,0,0,0.15)", isLight: false },
 ];
 
 type TextAlign = "left" | "center" | "right";
@@ -93,8 +96,8 @@ interface TextOverlay {
   font: string;
   fontSize: number;
   color: string;
-  x: number; // 0-100 percentage
-  y: number; // 0-100 percentage
+  x: number;
+  y: number;
   align: TextAlign;
   bold: boolean;
   italic: boolean;
@@ -114,6 +117,13 @@ const DEFAULT_TEXT_OVERLAY: TextOverlay = {
   outline: true,
 };
 
+// Printify mockup data per design
+interface PrintifyMockupData {
+  printifyProductId: string;
+  mockups: Record<string, string>; // color name → mockup image URL
+  defaultMockup: string | null;
+}
+
 export default function DesignStudioPage() {
   const [prompt, setPrompt] = useState("");
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
@@ -128,19 +138,21 @@ export default function DesignStudioPage() {
   const [hasShop, setHasShop] = useState(false);
   const supabase = createClient();
 
-  // T-shirt color state
-  const [selectedShirtColor, setSelectedShirtColor] = useState(TSHIRT_COLORS[0]);
+  // Shirt color selection
+  const [selectedShirtColor, setSelectedShirtColor] = useState(SHIRT_COLORS[0]);
+
+  // Printify mockup state
+  const [printifyData, setPrintifyData] = useState<PrintifyMockupData | null>(null);
+  const [loadingMockups, setLoadingMockups] = useState(false);
+  const [mockupError, setMockupError] = useState("");
 
   // Text overlay state
   const [showTextEditor, setShowTextEditor] = useState(false);
   const [textOverlay, setTextOverlay] = useState<TextOverlay>(DEFAULT_TEXT_OVERLAY);
   const [savingComposite, setSavingComposite] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const bgCanvasRef = useRef<HTMLCanvasElement>(null);
   const [compositePreviewUrl, setCompositePreviewUrl] = useState<string | null>(null);
   const [loadedImage, setLoadedImage] = useState<HTMLImageElement | null>(null);
-  const [transparentImageUrl, setTransparentImageUrl] = useState<string | null>(null);
-  const [removingBg, setRemovingBg] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -176,61 +188,6 @@ export default function DesignStudioPage() {
     }));
   }, [selectedShirtColor]);
 
-  // Remove white/near-white background from image using Canvas API
-  const removeWhiteBackground = useCallback((img: HTMLImageElement): string => {
-    const canvas = bgCanvasRef.current;
-    if (!canvas) return img.src;
-
-    const w = img.naturalWidth || img.width;
-    const h = img.naturalHeight || img.height;
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return img.src;
-
-    ctx.clearRect(0, 0, w, h);
-    ctx.drawImage(img, 0, 0, w, h);
-
-    const imageData = ctx.getImageData(0, 0, w, h);
-    const data = imageData.data;
-    let transparentCount = 0;
-
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      // Remove near-white/cream/beige pixels: R>240, G>240, B>230
-      if (r > 240 && g > 240 && b > 230) {
-        data[i + 3] = 0; // Set alpha to 0 (transparent)
-        transparentCount++;
-      }
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-    const totalPixels = w * h;
-    console.log(
-      `[BG Removal] Removed ${transparentCount} of ${totalPixels} pixels (${((transparentCount / totalPixels) * 100).toFixed(1)}% transparent)`
-    );
-
-    return canvas.toDataURL("image/png");
-  }, []);
-
-  // Auto-remove background when design image loads
-  useEffect(() => {
-    if (!loadedImage) {
-      setTransparentImageUrl(null);
-      return;
-    }
-    setRemovingBg(true);
-    // Use requestAnimationFrame to avoid blocking UI
-    requestAnimationFrame(() => {
-      const url = removeWhiteBackground(loadedImage);
-      setTransparentImageUrl(url);
-      setRemovingBg(false);
-      console.log("[BG Removal] Transparent PNG ready");
-    });
-  }, [loadedImage, removeWhiteBackground]);
-
   // Load Google Fonts for text overlay
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -244,7 +201,7 @@ export default function DesignStudioPage() {
     document.head.appendChild(link);
   }, []);
 
-  // Load the design image when currentDesign changes
+  // Load the design image when currentDesign changes (for text overlay compositing)
   useEffect(() => {
     if (!currentDesign) {
       setLoadedImage(null);
@@ -268,11 +225,9 @@ export default function DesignStudioPage() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Draw the original design image
     ctx.clearRect(0, 0, size, size);
     ctx.drawImage(loadedImage, 0, 0, size, size);
 
-    // Draw text overlay if there's text
     if (textOverlay.text.trim()) {
       const fontWeight = textOverlay.bold ? "bold" : "normal";
       const fontStyle = textOverlay.italic ? "italic" : "normal";
@@ -280,37 +235,25 @@ export default function DesignStudioPage() {
       ctx.fillStyle = textOverlay.color;
       ctx.textAlign = textOverlay.align;
 
-      // Free X/Y positioning (percentage to pixel)
-      let x: number;
-      if (textOverlay.align === "left") {
-        x = (textOverlay.x / 100) * size;
-      } else if (textOverlay.align === "right") {
-        x = (textOverlay.x / 100) * size;
-      } else {
-        x = (textOverlay.x / 100) * size;
-      }
+      const x = (textOverlay.x / 100) * size;
       const baseY = (textOverlay.y / 100) * size;
 
-      // Determine if text is dark for adaptive effects
       const isTextDark =
         parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 +
         parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 +
         parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128;
 
-      // Text shadow for readability
       ctx.shadowColor = isTextDark ? "rgba(255, 255, 255, 0.5)" : "rgba(0, 0, 0, 0.6)";
       ctx.shadowBlur = 4;
       ctx.shadowOffsetX = 1;
       ctx.shadowOffsetY = 1;
 
-      // Outline/stroke settings
       if (textOverlay.outline) {
         ctx.strokeStyle = isTextDark ? "#FFFFFF" : "#000000";
         ctx.lineWidth = Math.max(2, textOverlay.fontSize / 12);
         ctx.lineJoin = "round";
       }
 
-      // Word wrapping
       const maxWidth = size - 80;
       const words = textOverlay.text.split(" ");
       const lines: string[] = [];
@@ -328,7 +271,6 @@ export default function DesignStudioPage() {
       }
       lines.push(currentLine);
 
-      // Draw lines centered around the Y position
       const lineHeight = textOverlay.fontSize * 1.2;
       const totalHeight = lines.length * lineHeight;
       let y = baseY - totalHeight / 2 + textOverlay.fontSize;
@@ -341,7 +283,6 @@ export default function DesignStudioPage() {
         y += lineHeight;
       }
 
-      // Reset shadow
       ctx.shadowColor = "transparent";
       ctx.shadowBlur = 0;
       ctx.shadowOffsetX = 0;
@@ -365,6 +306,42 @@ export default function DesignStudioPage() {
     });
   }
 
+  // Fetch Printify mockups for a design (runs in background)
+  async function fetchPrintifyMockups(design: Design) {
+    setLoadingMockups(true);
+    setMockupError("");
+
+    try {
+      const res = await fetch("/api/printify/mockups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageUrl: design.image_url,
+          title: design.prompt.slice(0, 60),
+          designId: design.id,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Mockup generation failed");
+      }
+
+      const data = await res.json();
+      setPrintifyData({
+        printifyProductId: data.printifyProductId,
+        mockups: data.mockups,
+        defaultMockup: data.defaultMockup,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Mockup generation failed";
+      setMockupError(message);
+      console.warn("[Printify] Mockup fetch failed, using SVG fallback:", message);
+    } finally {
+      setLoadingMockups(false);
+    }
+  }
+
   async function generateDesign(
     designPrompt: string,
     style: string | null,
@@ -376,7 +353,8 @@ export default function DesignStudioPage() {
     setShowTextEditor(false);
     setTextOverlay(DEFAULT_TEXT_OVERLAY);
     setCompositePreviewUrl(null);
-    setTransparentImageUrl(null);
+    setPrintifyData(null);
+    setMockupError("");
 
     try {
       const res = await fetch("/api/generate-design", {
@@ -397,6 +375,9 @@ export default function DesignStudioPage() {
       setLastPromptUsed(designPrompt.trim());
       setLastStyleUsed(style);
       setLastColorsUsed(colors);
+
+      // Fetch Printify mockups in background (non-blocking)
+      fetchPrintifyMockups(data.design);
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : "Failed to generate design";
@@ -454,6 +435,9 @@ export default function DesignStudioPage() {
       setDesigns((prev) => [data.design, ...prev]);
       setShowTextEditor(false);
       setTextOverlay(DEFAULT_TEXT_OVERLAY);
+
+      // Fetch new Printify mockups for the composite design
+      fetchPrintifyMockups(data.design);
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : "Failed to save composite design";
@@ -463,17 +447,22 @@ export default function DesignStudioPage() {
     }
   }
 
-  // The image to show on the mockup: composite preview when editing text, transparent version, or original
-  const mockupImageUrl =
+  // Determine which mockup image to show
+  const printifyMockupForColor = printifyData?.mockups[selectedShirtColor.printifyName];
+  const hasPrintifyMockup = !!printifyMockupForColor;
+
+  // The design image shown on the SVG fallback mockup
+  const svgMockupImageUrl =
     showTextEditor && compositePreviewUrl
       ? compositePreviewUrl
-      : transparentImageUrl || currentDesign?.image_url;
+      : currentDesign?.image_url;
+
+  const sc = selectedShirtColor; // Shorthand for SVG usage
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
-      {/* Hidden canvases for compositing and background removal */}
+      {/* Hidden canvas for text compositing */}
       <canvas ref={canvasRef} className="hidden" />
-      <canvas ref={bgCanvasRef} className="hidden" />
 
       {/* Header */}
       <div className="text-center mb-10">
@@ -920,7 +909,9 @@ export default function DesignStudioPage() {
                       setShowTextEditor(false);
                       setTextOverlay(DEFAULT_TEXT_OVERLAY);
                       setCompositePreviewUrl(null);
-                      setTransparentImageUrl(null);
+                      setPrintifyData(null);
+                      // Fetch Printify mockups for this gallery design
+                      fetchPrintifyMockups(design);
                     }}
                     className={`aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
                       currentDesign?.id === design.id
@@ -956,14 +947,14 @@ export default function DesignStudioPage() {
             </div>
           ) : currentDesign ? (
             <div>
-              {/* T-Shirt Color Selector */}
+              {/* Shirt Color Selector */}
               <div className="mb-3">
                 <label className="flex items-center gap-2 text-sm font-semibold mb-2 text-primary">
                   <Palette className="w-4 h-4 text-accent" />
                   Shirt Color
                 </label>
                 <div className="flex gap-2">
-                  {TSHIRT_COLORS.map((color) => (
+                  {SHIRT_COLORS.map((color) => (
                     <button
                       key={color.name}
                       onClick={() => setSelectedShirtColor(color)}
@@ -985,147 +976,132 @@ export default function DesignStudioPage() {
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">{selectedShirtColor.name}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {selectedShirtColor.name}
+                  {loadingMockups && " — generating mockup..."}
+                  {hasPrintifyMockup && (
+                    <span className="inline-flex items-center gap-1 ml-1 text-accent">
+                      <ImageIcon className="w-3 h-3" /> Printify
+                    </span>
+                  )}
+                </p>
               </div>
 
-              {/* Realistic T-Shirt Mockup */}
-              <div className="border border-border rounded-xl overflow-hidden bg-gradient-to-b from-[#e8e8ec] to-[#d1d1d8] relative aspect-square flex items-center justify-center p-4">
-                {removingBg && (
-                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-surface/60 backdrop-blur-sm">
-                    <div className="flex items-center gap-2 text-sm text-primary">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Removing background...
-                    </div>
+              {/* Mockup Display */}
+              <div className="border border-border rounded-xl overflow-hidden bg-gradient-to-b from-[#e8e8ec] to-[#d1d1d8] relative aspect-square flex items-center justify-center">
+                {loadingMockups && (
+                  <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-surface/80 backdrop-blur-sm px-2 py-1 rounded-full text-xs text-muted-foreground">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Loading Printify mockup...
                   </div>
                 )}
-                <svg
-                  viewBox="0 0 400 480"
-                  className="w-full h-full drop-shadow-lg"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <defs>
-                    {/* Fabric texture */}
-                    <filter id="fabric" x="-5%" y="-5%" width="110%" height="110%">
-                      <feTurbulence type="fractalNoise" baseFrequency="1.2" numOctaves="6" seed="5" result="noise" />
-                      <feColorMatrix type="saturate" values="0" in="noise" result="gray" />
-                      <feBlend in="SourceGraphic" in2="gray" mode="multiply" result="tex" />
-                      <feComposite in="tex" in2="SourceGraphic" operator="in" />
-                    </filter>
-                    {/* Gradients for depth */}
-                    <linearGradient id="sleeve-l" x1="0" y1="0" x2="1" y2="0.3">
-                      <stop offset="0%" stopColor={selectedShirtColor.foldDark} />
-                      <stop offset="100%" stopColor="transparent" />
-                    </linearGradient>
-                    <linearGradient id="sleeve-r" x1="1" y1="0" x2="0" y2="0.3">
-                      <stop offset="0%" stopColor={selectedShirtColor.foldDark} />
-                      <stop offset="100%" stopColor="transparent" />
-                    </linearGradient>
-                    <linearGradient id="center-hl" x1="0" y1="0" x2="1" y2="0">
-                      <stop offset="0%" stopColor="transparent" />
-                      <stop offset="35%" stopColor={selectedShirtColor.foldLight} />
-                      <stop offset="50%" stopColor={selectedShirtColor.foldLight} />
-                      <stop offset="65%" stopColor="transparent" />
-                    </linearGradient>
-                    <linearGradient id="body-v" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={selectedShirtColor.foldLight} />
-                      <stop offset="40%" stopColor="transparent" />
-                      <stop offset="100%" stopColor={selectedShirtColor.foldDark} />
-                    </linearGradient>
-                    <radialGradient id="chest-hl" cx="50%" cy="35%" r="35%">
-                      <stop offset="0%" stopColor={selectedShirtColor.foldLight} />
-                      <stop offset="100%" stopColor="transparent" />
-                    </radialGradient>
-                    <clipPath id="shirt-shape">
-                      <path d="M105,62 L62,82 L18,148 L72,168 L92,115 L88,420 L312,420 L308,115 L328,168 L382,148 L338,82 L295,62 L258,48 Q232,82 200,82 Q168,82 142,48 Z" />
-                    </clipPath>
-                    {/* Print area clip */}
-                    <clipPath id="print-area">
-                      <rect x="110" y="105" width="180" height="200" rx="4" />
-                    </clipPath>
-                  </defs>
 
-                  {/* Ground shadow */}
-                  <ellipse cx="200" cy="448" rx="140" ry="12" fill="rgba(0,0,0,0.10)" />
-
-                  {/* Shirt body */}
-                  <path
-                    d="M105,62 L62,82 L18,148 L72,168 L92,115 L88,420 L312,420 L308,115 L328,168 L382,148 L338,82 L295,62 L258,48 Q232,82 200,82 Q168,82 142,48 Z"
-                    fill={selectedShirtColor.fill}
-                    stroke={selectedShirtColor.stroke}
-                    strokeWidth="1"
-                    filter="url(#fabric)"
+                {hasPrintifyMockup ? (
+                  /* Printify photorealistic mockup */
+                  <img
+                    src={printifyMockupForColor}
+                    alt={`${selectedShirtColor.name} t-shirt mockup`}
+                    className="w-full h-full object-contain p-2"
                   />
-
-                  {/* Shading & wrinkle layers */}
-                  <g clipPath="url(#shirt-shape)">
-                    {/* Overall body shading */}
-                    <rect x="85" y="60" width="230" height="365" fill="url(#body-v)" opacity="0.25" />
-                    {/* Chest highlight */}
-                    <rect x="85" y="60" width="230" height="365" fill="url(#chest-hl)" opacity="0.2" />
-                    {/* Left side shadow */}
-                    <rect x="85" y="100" width="70" height="320" fill="url(#sleeve-l)" opacity="0.4" />
-                    {/* Right side shadow */}
-                    <rect x="245" y="100" width="70" height="320" fill="url(#sleeve-r)" opacity="0.4" />
-                    {/* Center vertical highlight */}
-                    <rect x="175" y="80" width="50" height="340" fill="url(#center-hl)" opacity="0.3" />
-                    {/* Left sleeve fold */}
-                    <path d="M62,82 L92,115 L87,175 L52,125 Z" fill={selectedShirtColor.foldDark} opacity="0.25" />
-                    {/* Right sleeve fold */}
-                    <path d="M338,82 L308,115 L313,175 L348,125 Z" fill={selectedShirtColor.foldDark} opacity="0.25" />
-                    {/* Wrinkle curves */}
-                    <path d="M110,185 Q200,190 290,183" fill="none" stroke={selectedShirtColor.foldDark} strokeWidth="0.6" opacity="0.2" />
-                    <path d="M115,250 Q195,256 285,248" fill="none" stroke={selectedShirtColor.foldDark} strokeWidth="0.5" opacity="0.18" />
-                    <path d="M108,320 Q200,326 292,318" fill="none" stroke={selectedShirtColor.foldDark} strokeWidth="0.5" opacity="0.15" />
-                    <path d="M110,375 Q200,380 290,373" fill="none" stroke={selectedShirtColor.foldDark} strokeWidth="0.4" opacity="0.12" />
-                    {/* Diagonal wrinkle from armpit */}
-                    <path d="M95,120 Q130,170 145,230" fill="none" stroke={selectedShirtColor.foldDark} strokeWidth="0.5" opacity="0.15" />
-                    <path d="M305,120 Q270,170 255,230" fill="none" stroke={selectedShirtColor.foldDark} strokeWidth="0.5" opacity="0.15" />
-                  </g>
-
-                  {/* Collar */}
-                  <path
-                    d="M142,48 Q168,80 200,80 Q232,80 258,48"
-                    fill="none"
-                    stroke={selectedShirtColor.stroke}
-                    strokeWidth="2"
-                  />
-                  <path
-                    d="M147,52 Q170,74 200,74 Q230,74 253,52"
-                    fill="none"
-                    stroke={selectedShirtColor.foldDark}
-                    strokeWidth="1.5"
-                    opacity="0.4"
-                  />
-
-                  {/* Side seams */}
-                  <line x1="88" y1="115" x2="88" y2="420" stroke={selectedShirtColor.stroke} strokeWidth="0.4" opacity="0.3" />
-                  <line x1="312" y1="115" x2="312" y2="420" stroke={selectedShirtColor.stroke} strokeWidth="0.4" opacity="0.3" />
-
-                  {/* Design image — clipped to print area */}
-                  <image
-                    href={mockupImageUrl}
-                    x="110"
-                    y="105"
-                    width="180"
-                    height="200"
-                    preserveAspectRatio="xMidYMid meet"
-                    clipPath="url(#print-area)"
-                    opacity="0.9"
-                    style={{ mixBlendMode: "multiply" }}
-                  />
-
-                  {/* Overlay to make print look fabric-blended */}
-                  <rect
-                    x="110"
-                    y="105"
-                    width="180"
-                    height="200"
-                    fill="url(#center-hl)"
-                    clipPath="url(#print-area)"
-                    opacity="0.08"
-                  />
-                </svg>
+                ) : (
+                  /* SVG fallback mockup */
+                  <svg
+                    viewBox="0 0 400 480"
+                    className="w-full h-full drop-shadow-lg p-4"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <defs>
+                      <filter id="fabric" x="-5%" y="-5%" width="110%" height="110%">
+                        <feTurbulence type="fractalNoise" baseFrequency="1.2" numOctaves="6" seed="5" result="noise" />
+                        <feColorMatrix type="saturate" values="0" in="noise" result="gray" />
+                        <feBlend in="SourceGraphic" in2="gray" mode="multiply" result="tex" />
+                        <feComposite in="tex" in2="SourceGraphic" operator="in" />
+                      </filter>
+                      <linearGradient id="sleeve-l" x1="0" y1="0" x2="1" y2="0.3">
+                        <stop offset="0%" stopColor={sc.foldDark} />
+                        <stop offset="100%" stopColor="transparent" />
+                      </linearGradient>
+                      <linearGradient id="sleeve-r" x1="1" y1="0" x2="0" y2="0.3">
+                        <stop offset="0%" stopColor={sc.foldDark} />
+                        <stop offset="100%" stopColor="transparent" />
+                      </linearGradient>
+                      <linearGradient id="center-hl" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor="transparent" />
+                        <stop offset="35%" stopColor={sc.foldLight} />
+                        <stop offset="65%" stopColor="transparent" />
+                      </linearGradient>
+                      <linearGradient id="body-v" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={sc.foldLight} />
+                        <stop offset="40%" stopColor="transparent" />
+                        <stop offset="100%" stopColor={sc.foldDark} />
+                      </linearGradient>
+                      <radialGradient id="chest-hl" cx="50%" cy="35%" r="35%">
+                        <stop offset="0%" stopColor={sc.foldLight} />
+                        <stop offset="100%" stopColor="transparent" />
+                      </radialGradient>
+                      <clipPath id="shirt-shape">
+                        <path d="M105,62 L62,82 L18,148 L72,168 L92,115 L88,420 L312,420 L308,115 L328,168 L382,148 L338,82 L295,62 L258,48 Q232,82 200,82 Q168,82 142,48 Z" />
+                      </clipPath>
+                      <clipPath id="print-area">
+                        <rect x="110" y="105" width="180" height="200" rx="4" />
+                      </clipPath>
+                    </defs>
+                    <ellipse cx="200" cy="448" rx="140" ry="12" fill="rgba(0,0,0,0.10)" />
+                    <path
+                      d="M105,62 L62,82 L18,148 L72,168 L92,115 L88,420 L312,420 L308,115 L328,168 L382,148 L338,82 L295,62 L258,48 Q232,82 200,82 Q168,82 142,48 Z"
+                      fill={sc.fill}
+                      stroke={sc.stroke}
+                      strokeWidth="1"
+                      filter="url(#fabric)"
+                    />
+                    <g clipPath="url(#shirt-shape)">
+                      <rect x="85" y="60" width="230" height="365" fill="url(#body-v)" opacity="0.25" />
+                      <rect x="85" y="60" width="230" height="365" fill="url(#chest-hl)" opacity="0.2" />
+                      <rect x="85" y="100" width="70" height="320" fill="url(#sleeve-l)" opacity="0.4" />
+                      <rect x="245" y="100" width="70" height="320" fill="url(#sleeve-r)" opacity="0.4" />
+                      <rect x="175" y="80" width="50" height="340" fill="url(#center-hl)" opacity="0.3" />
+                      <path d="M62,82 L92,115 L87,175 L52,125 Z" fill={sc.foldDark} opacity="0.25" />
+                      <path d="M338,82 L308,115 L313,175 L348,125 Z" fill={sc.foldDark} opacity="0.25" />
+                      <path d="M110,185 Q200,190 290,183" fill="none" stroke={sc.foldDark} strokeWidth="0.6" opacity="0.2" />
+                      <path d="M115,250 Q195,256 285,248" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.18" />
+                      <path d="M108,320 Q200,326 292,318" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.15" />
+                      <path d="M95,120 Q130,170 145,230" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.15" />
+                      <path d="M305,120 Q270,170 255,230" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.15" />
+                    </g>
+                    <path d="M142,48 Q168,80 200,80 Q232,80 258,48" fill="none" stroke={sc.stroke} strokeWidth="2" />
+                    <path d="M147,52 Q170,74 200,74 Q230,74 253,52" fill="none" stroke={sc.foldDark} strokeWidth="1.5" opacity="0.4" />
+                    <line x1="88" y1="115" x2="88" y2="420" stroke={sc.stroke} strokeWidth="0.4" opacity="0.3" />
+                    <line x1="312" y1="115" x2="312" y2="420" stroke={sc.stroke} strokeWidth="0.4" opacity="0.3" />
+                    <image
+                      href={svgMockupImageUrl}
+                      x="110"
+                      y="105"
+                      width="180"
+                      height="200"
+                      preserveAspectRatio="xMidYMid meet"
+                      clipPath="url(#print-area)"
+                      opacity="0.9"
+                      style={{ mixBlendMode: "multiply" }}
+                    />
+                    <rect
+                      x="110"
+                      y="105"
+                      width="180"
+                      height="200"
+                      fill="url(#center-hl)"
+                      clipPath="url(#print-area)"
+                      opacity="0.08"
+                    />
+                  </svg>
+                )}
               </div>
+
+              {/* Mockup status */}
+              {mockupError && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Printify unavailable — using preview mockup
+                </p>
+              )}
 
               {/* Actions row */}
               <div className="flex gap-2 mt-4">
@@ -1162,7 +1138,7 @@ export default function DesignStudioPage() {
               <div className="flex gap-2 mt-2">
                 {hasShop ? (
                   <Link
-                    href={`/product/new?design=${currentDesign.id}`}
+                    href={`/product/new?design=${currentDesign.id}${printifyData ? `&printifyProduct=${printifyData.printifyProductId}` : ""}`}
                     className="flex-1 bg-accent text-accent-foreground py-2.5 rounded-lg font-medium hover:opacity-90 flex items-center justify-center gap-2 text-sm"
                   >
                     <ShoppingBag className="w-4 h-4" />

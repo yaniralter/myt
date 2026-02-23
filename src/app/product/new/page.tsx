@@ -19,6 +19,7 @@ function NewProductForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const designId = searchParams.get("design");
+  const existingPrintifyProductId = searchParams.get("printifyProduct");
   const supabase = createClient();
 
   useEffect(() => {
@@ -75,24 +76,26 @@ function NewProductForm() {
       return;
     }
 
-    // Create Printify product (optional integration)
-    let printifyProductId = null;
-    try {
-      const printifyRes = await fetch("/api/printify/create-product", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title,
-          description,
-          imageUrl: design.image_url,
-        }),
-      });
-      if (printifyRes.ok) {
-        const printifyData = await printifyRes.json();
-        printifyProductId = printifyData.productId;
+    // Use existing Printify product ID from Design Studio, or create a new one
+    let printifyProductId = existingPrintifyProductId || null;
+    if (!printifyProductId) {
+      try {
+        const printifyRes = await fetch("/api/printify/create-product", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title,
+            description,
+            imageUrl: design.image_url,
+          }),
+        });
+        if (printifyRes.ok) {
+          const printifyData = await printifyRes.json();
+          printifyProductId = printifyData.productId;
+        }
+      } catch {
+        // Printify integration is optional - continue without it
       }
-    } catch {
-      // Printify integration is optional - continue without it
     }
 
     const { error: insertError } = await supabase.from("products").insert({
