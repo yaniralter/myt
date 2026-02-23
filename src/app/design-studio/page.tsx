@@ -20,6 +20,7 @@ import {
   AlignCenter,
   AlignRight,
   Palette,
+  Move,
 } from "lucide-react";
 import type { Design } from "@/lib/types";
 
@@ -85,7 +86,6 @@ const TSHIRT_COLORS: TShirtColor[] = [
   { name: "Red", fill: "#DC2626", stroke: "#B91C1C", foldLight: "rgba(255,255,255,0.12)", foldDark: "rgba(0,0,0,0.15)", isLight: false },
 ];
 
-type TextPosition = "top" | "center" | "bottom";
 type TextAlign = "left" | "center" | "right";
 
 interface TextOverlay {
@@ -93,10 +93,12 @@ interface TextOverlay {
   font: string;
   fontSize: number;
   color: string;
-  position: TextPosition;
+  x: number; // 0-100 percentage
+  y: number; // 0-100 percentage
   align: TextAlign;
   bold: boolean;
   italic: boolean;
+  outline: boolean;
 }
 
 const DEFAULT_TEXT_OVERLAY: TextOverlay = {
@@ -104,10 +106,12 @@ const DEFAULT_TEXT_OVERLAY: TextOverlay = {
   font: "Arial, sans-serif",
   fontSize: 40,
   color: "#1C1C1C",
-  position: "bottom",
+  x: 50,
+  y: 85,
   align: "center",
   bold: false,
   italic: false,
+  outline: true,
 };
 
 export default function DesignStudioPage() {
@@ -132,8 +136,11 @@ export default function DesignStudioPage() {
   const [textOverlay, setTextOverlay] = useState<TextOverlay>(DEFAULT_TEXT_OVERLAY);
   const [savingComposite, setSavingComposite] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const bgCanvasRef = useRef<HTMLCanvasElement>(null);
   const [compositePreviewUrl, setCompositePreviewUrl] = useState<string | null>(null);
   const [loadedImage, setLoadedImage] = useState<HTMLImageElement | null>(null);
+  const [transparentImageUrl, setTransparentImageUrl] = useState<string | null>(null);
+  const [removingBg, setRemovingBg] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -168,6 +175,61 @@ export default function DesignStudioPage() {
       color: selectedShirtColor.isLight ? "#1C1C1C" : "#FFFFFF",
     }));
   }, [selectedShirtColor]);
+
+  // Remove white/near-white background from image using Canvas API
+  const removeWhiteBackground = useCallback((img: HTMLImageElement): string => {
+    const canvas = bgCanvasRef.current;
+    if (!canvas) return img.src;
+
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return img.src;
+
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const data = imageData.data;
+    let transparentCount = 0;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      // Remove near-white/cream/beige pixels: R>240, G>240, B>230
+      if (r > 240 && g > 240 && b > 230) {
+        data[i + 3] = 0; // Set alpha to 0 (transparent)
+        transparentCount++;
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    const totalPixels = w * h;
+    console.log(
+      `[BG Removal] Removed ${transparentCount} of ${totalPixels} pixels (${((transparentCount / totalPixels) * 100).toFixed(1)}% transparent)`
+    );
+
+    return canvas.toDataURL("image/png");
+  }, []);
+
+  // Auto-remove background when design image loads
+  useEffect(() => {
+    if (!loadedImage) {
+      setTransparentImageUrl(null);
+      return;
+    }
+    setRemovingBg(true);
+    // Use requestAnimationFrame to avoid blocking UI
+    requestAnimationFrame(() => {
+      const url = removeWhiteBackground(loadedImage);
+      setTransparentImageUrl(url);
+      setRemovingBg(false);
+      console.log("[BG Removal] Transparent PNG ready");
+    });
+  }, [loadedImage, removeWhiteBackground]);
 
   // Load Google Fonts for text overlay
   useEffect(() => {
@@ -216,50 +278,37 @@ export default function DesignStudioPage() {
       const fontStyle = textOverlay.italic ? "italic" : "normal";
       ctx.font = `${fontStyle} ${fontWeight} ${textOverlay.fontSize}px ${textOverlay.font}`;
       ctx.fillStyle = textOverlay.color;
+      ctx.textAlign = textOverlay.align;
 
-      // Text alignment
-      if (textOverlay.align === "left") {
-        ctx.textAlign = "left";
-      } else if (textOverlay.align === "right") {
-        ctx.textAlign = "right";
-      } else {
-        ctx.textAlign = "center";
-      }
-
-      // Calculate X position based on alignment
+      // Free X/Y positioning (percentage to pixel)
       let x: number;
       if (textOverlay.align === "left") {
-        x = 40;
+        x = (textOverlay.x / 100) * size;
       } else if (textOverlay.align === "right") {
-        x = size - 40;
+        x = (textOverlay.x / 100) * size;
       } else {
-        x = size / 2;
+        x = (textOverlay.x / 100) * size;
       }
+      const baseY = (textOverlay.y / 100) * size;
 
-      // Calculate Y position
-      let y: number;
-      if (textOverlay.position === "top") {
-        y = textOverlay.fontSize + 30;
-      } else if (textOverlay.position === "bottom") {
-        y = size - 30;
-      } else {
-        y = size / 2 + textOverlay.fontSize / 3;
-      }
-
-      // Draw text shadow for readability – adaptive to text color brightness
+      // Determine if text is dark for adaptive effects
       const isTextDark =
         parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 +
         parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 +
         parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128;
-      ctx.shadowColor = isTextDark ? "rgba(255, 255, 255, 0.6)" : "rgba(0, 0, 0, 0.7)";
-      ctx.shadowBlur = 6;
-      ctx.shadowOffsetX = 2;
-      ctx.shadowOffsetY = 2;
 
-      // Draw text outline/stroke for extra contrast
-      ctx.strokeStyle = isTextDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)";
-      ctx.lineWidth = 3;
-      ctx.lineJoin = "round";
+      // Text shadow for readability
+      ctx.shadowColor = isTextDark ? "rgba(255, 255, 255, 0.5)" : "rgba(0, 0, 0, 0.6)";
+      ctx.shadowBlur = 4;
+      ctx.shadowOffsetX = 1;
+      ctx.shadowOffsetY = 1;
+
+      // Outline/stroke settings
+      if (textOverlay.outline) {
+        ctx.strokeStyle = isTextDark ? "#FFFFFF" : "#000000";
+        ctx.lineWidth = Math.max(2, textOverlay.fontSize / 12);
+        ctx.lineJoin = "round";
+      }
 
       // Word wrapping
       const maxWidth = size - 80;
@@ -279,19 +328,15 @@ export default function DesignStudioPage() {
       }
       lines.push(currentLine);
 
-      // Adjust Y for multi-line centering
+      // Draw lines centered around the Y position
       const lineHeight = textOverlay.fontSize * 1.2;
       const totalHeight = lines.length * lineHeight;
-      if (textOverlay.position === "center") {
-        y = (size - totalHeight) / 2 + textOverlay.fontSize;
-      } else if (textOverlay.position === "top") {
-        y = textOverlay.fontSize + 30;
-      } else {
-        y = size - totalHeight - 10 + textOverlay.fontSize;
-      }
+      let y = baseY - totalHeight / 2 + textOverlay.fontSize;
 
       for (const line of lines) {
-        ctx.strokeText(line, x, y);
+        if (textOverlay.outline) {
+          ctx.strokeText(line, x, y);
+        }
         ctx.fillText(line, x, y);
         y += lineHeight;
       }
@@ -331,6 +376,7 @@ export default function DesignStudioPage() {
     setShowTextEditor(false);
     setTextOverlay(DEFAULT_TEXT_OVERLAY);
     setCompositePreviewUrl(null);
+    setTransparentImageUrl(null);
 
     try {
       const res = await fetch("/api/generate-design", {
@@ -417,16 +463,17 @@ export default function DesignStudioPage() {
     }
   }
 
-  // The image to show on the mockup: composite preview when editing text, otherwise original
+  // The image to show on the mockup: composite preview when editing text, transparent version, or original
   const mockupImageUrl =
     showTextEditor && compositePreviewUrl
       ? compositePreviewUrl
-      : currentDesign?.image_url;
+      : transparentImageUrl || currentDesign?.image_url;
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
-      {/* Hidden canvas for compositing */}
+      {/* Hidden canvases for compositing and background removal */}
       <canvas ref={canvasRef} className="hidden" />
+      <canvas ref={bgCanvasRef} className="hidden" />
 
       {/* Header */}
       <div className="text-center mb-10">
@@ -739,59 +786,105 @@ export default function DesignStudioPage() {
                 </div>
               </div>
 
-              {/* Position */}
+              {/* Free Position X/Y */}
               <div>
-                <label className="block text-xs font-medium mb-1 text-muted-foreground">
+                <label className="flex items-center gap-2 text-xs font-medium mb-1 text-muted-foreground">
+                  <Move className="w-3 h-3" />
                   Position
                 </label>
-                <div className="flex gap-2">
-                  {(["top", "center", "bottom"] as const).map((pos) => (
-                    <button
-                      key={pos}
-                      type="button"
-                      onClick={() =>
-                        setTextOverlay((prev) => ({ ...prev, position: pos }))
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="flex justify-between text-xs text-muted-foreground mb-0.5">
+                      <span>X</span>
+                      <span>{textOverlay.x}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={textOverlay.x}
+                      onChange={(e) =>
+                        setTextOverlay((prev) => ({
+                          ...prev,
+                          x: Number(e.target.value),
+                        }))
                       }
-                      className={`flex-1 py-2 rounded-lg border text-xs font-medium capitalize transition-colors ${
-                        textOverlay.position === pos
-                          ? "border-accent bg-accent/10 text-accent"
-                          : "border-border text-muted-foreground hover:text-primary"
-                      }`}
-                    >
-                      {pos}
-                    </button>
-                  ))}
+                      className="w-full accent-accent"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-xs text-muted-foreground mb-0.5">
+                      <span>Y</span>
+                      <span>{textOverlay.y}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={textOverlay.y}
+                      onChange={(e) =>
+                        setTextOverlay((prev) => ({
+                          ...prev,
+                          y: Number(e.target.value),
+                        }))
+                      }
+                      className="w-full accent-accent"
+                    />
+                  </div>
                 </div>
               </div>
 
-              {/* Alignment */}
-              <div>
-                <label className="block text-xs font-medium mb-1 text-muted-foreground">
-                  Alignment
-                </label>
-                <div className="flex gap-2">
-                  {(
-                    [
-                      { value: "left", icon: AlignLeft },
-                      { value: "center", icon: AlignCenter },
-                      { value: "right", icon: AlignRight },
-                    ] as const
-                  ).map(({ value, icon: Icon }) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() =>
-                        setTextOverlay((prev) => ({ ...prev, align: value }))
-                      }
-                      className={`flex-1 py-2 rounded-lg border flex items-center justify-center transition-colors ${
-                        textOverlay.align === value
-                          ? "border-accent bg-accent/10 text-accent"
-                          : "border-border text-muted-foreground hover:text-primary"
-                      }`}
-                    >
-                      <Icon className="w-4 h-4" />
-                    </button>
-                  ))}
+              {/* Alignment + Outline */}
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium mb-1 text-muted-foreground">
+                    Alignment
+                  </label>
+                  <div className="flex gap-2">
+                    {(
+                      [
+                        { value: "left", icon: AlignLeft },
+                        { value: "center", icon: AlignCenter },
+                        { value: "right", icon: AlignRight },
+                      ] as const
+                    ).map(({ value, icon: Icon }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() =>
+                          setTextOverlay((prev) => ({ ...prev, align: value }))
+                        }
+                        className={`flex-1 py-2 rounded-lg border flex items-center justify-center transition-colors ${
+                          textOverlay.align === value
+                            ? "border-accent bg-accent/10 text-accent"
+                            : "border-border text-muted-foreground hover:text-primary"
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1 text-muted-foreground">
+                    Outline
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setTextOverlay((prev) => ({
+                        ...prev,
+                        outline: !prev.outline,
+                      }))
+                    }
+                    className={`w-full py-2 px-3 rounded-lg border text-xs font-medium transition-colors ${
+                      textOverlay.outline
+                        ? "border-accent bg-accent/10 text-accent"
+                        : "border-border text-muted-foreground hover:text-primary"
+                    }`}
+                  >
+                    {textOverlay.outline ? "ON" : "OFF"}
+                  </button>
                 </div>
               </div>
 
@@ -827,6 +920,7 @@ export default function DesignStudioPage() {
                       setShowTextEditor(false);
                       setTextOverlay(DEFAULT_TEXT_OVERLAY);
                       setCompositePreviewUrl(null);
+                      setTransparentImageUrl(null);
                     }}
                     className={`aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
                       currentDesign?.id === design.id
@@ -895,118 +989,140 @@ export default function DesignStudioPage() {
               </div>
 
               {/* Realistic T-Shirt Mockup */}
-              <div className="border border-border rounded-xl overflow-hidden bg-gradient-to-b from-surface to-surface-raised relative aspect-square flex items-center justify-center">
+              <div className="border border-border rounded-xl overflow-hidden bg-gradient-to-b from-[#e8e8ec] to-[#d1d1d8] relative aspect-square flex items-center justify-center p-4">
+                {removingBg && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-surface/60 backdrop-blur-sm">
+                    <div className="flex items-center gap-2 text-sm text-primary">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Removing background...
+                    </div>
+                  </div>
+                )}
                 <svg
-                  viewBox="0 0 400 450"
-                  className="w-full h-full"
+                  viewBox="0 0 400 480"
+                  className="w-full h-full drop-shadow-lg"
                   xmlns="http://www.w3.org/2000/svg"
                 >
                   <defs>
-                    {/* Fabric texture filter */}
-                    <filter id="fabric-texture" x="0%" y="0%" width="100%" height="100%">
-                      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" seed="2" result="noise" />
-                      <feColorMatrix type="saturate" values="0" in="noise" result="grayNoise" />
-                      <feBlend in="SourceGraphic" in2="grayNoise" mode="multiply" result="textured" />
-                      <feComposite in="textured" in2="SourceGraphic" operator="in" />
+                    {/* Fabric texture */}
+                    <filter id="fabric" x="-5%" y="-5%" width="110%" height="110%">
+                      <feTurbulence type="fractalNoise" baseFrequency="1.2" numOctaves="6" seed="5" result="noise" />
+                      <feColorMatrix type="saturate" values="0" in="noise" result="gray" />
+                      <feBlend in="SourceGraphic" in2="gray" mode="multiply" result="tex" />
+                      <feComposite in="tex" in2="SourceGraphic" operator="in" />
                     </filter>
-                    {/* Subtle fold shadow gradients */}
-                    <linearGradient id="fold-left" x1="0" y1="0" x2="1" y2="0">
+                    {/* Gradients for depth */}
+                    <linearGradient id="sleeve-l" x1="0" y1="0" x2="1" y2="0.3">
                       <stop offset="0%" stopColor={selectedShirtColor.foldDark} />
-                      <stop offset="40%" stopColor="transparent" />
+                      <stop offset="100%" stopColor="transparent" />
                     </linearGradient>
-                    <linearGradient id="fold-right" x1="1" y1="0" x2="0" y2="0">
+                    <linearGradient id="sleeve-r" x1="1" y1="0" x2="0" y2="0.3">
                       <stop offset="0%" stopColor={selectedShirtColor.foldDark} />
-                      <stop offset="40%" stopColor="transparent" />
+                      <stop offset="100%" stopColor="transparent" />
                     </linearGradient>
-                    <linearGradient id="fold-center" x1="0" y1="0" x2="1" y2="0">
+                    <linearGradient id="center-hl" x1="0" y1="0" x2="1" y2="0">
                       <stop offset="0%" stopColor="transparent" />
-                      <stop offset="30%" stopColor={selectedShirtColor.foldLight} />
+                      <stop offset="35%" stopColor={selectedShirtColor.foldLight} />
                       <stop offset="50%" stopColor={selectedShirtColor.foldLight} />
-                      <stop offset="70%" stopColor="transparent" />
+                      <stop offset="65%" stopColor="transparent" />
                     </linearGradient>
-                    <linearGradient id="body-shading" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id="body-v" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={selectedShirtColor.foldLight} />
-                      <stop offset="50%" stopColor="transparent" />
+                      <stop offset="40%" stopColor="transparent" />
                       <stop offset="100%" stopColor={selectedShirtColor.foldDark} />
                     </linearGradient>
-                    {/* Clip path for design area on the shirt */}
-                    <clipPath id="shirt-clip">
-                      <path d="M100,60 L60,80 L20,140 L70,160 L90,110 L90,400 L310,400 L310,110 L330,160 L380,140 L340,80 L300,60 L260,50 Q230,80 200,80 Q170,80 140,50 Z" />
+                    <radialGradient id="chest-hl" cx="50%" cy="35%" r="35%">
+                      <stop offset="0%" stopColor={selectedShirtColor.foldLight} />
+                      <stop offset="100%" stopColor="transparent" />
+                    </radialGradient>
+                    <clipPath id="shirt-shape">
+                      <path d="M105,62 L62,82 L18,148 L72,168 L92,115 L88,420 L312,420 L308,115 L328,168 L382,148 L338,82 L295,62 L258,48 Q232,82 200,82 Q168,82 142,48 Z" />
+                    </clipPath>
+                    {/* Print area clip */}
+                    <clipPath id="print-area">
+                      <rect x="110" y="105" width="180" height="200" rx="4" />
                     </clipPath>
                   </defs>
 
-                  {/* Drop shadow */}
-                  <ellipse cx="200" cy="432" rx="130" ry="10" fill="rgba(0,0,0,0.12)" />
+                  {/* Ground shadow */}
+                  <ellipse cx="200" cy="448" rx="140" ry="12" fill="rgba(0,0,0,0.10)" />
 
-                  {/* Main shirt body with fabric texture */}
+                  {/* Shirt body */}
                   <path
-                    d="M100,60 L60,80 L20,140 L70,160 L90,110 L90,400 L310,400 L310,110 L330,160 L380,140 L340,80 L300,60 L260,50 Q230,80 200,80 Q170,80 140,50 Z"
+                    d="M105,62 L62,82 L18,148 L72,168 L92,115 L88,420 L312,420 L308,115 L328,168 L382,148 L338,82 L295,62 L258,48 Q232,82 200,82 Q168,82 142,48 Z"
                     fill={selectedShirtColor.fill}
                     stroke={selectedShirtColor.stroke}
-                    strokeWidth="1.5"
-                    filter="url(#fabric-texture)"
+                    strokeWidth="1"
+                    filter="url(#fabric)"
                   />
 
-                  {/* Collar/neckline */}
-                  <path
-                    d="M140,50 Q170,78 200,78 Q230,78 260,50"
-                    fill="none"
-                    stroke={selectedShirtColor.stroke}
-                    strokeWidth="1.5"
-                  />
-                  {/* Inner collar shadow */}
-                  <path
-                    d="M145,53 Q170,75 200,75 Q230,75 255,53"
-                    fill="none"
-                    stroke={selectedShirtColor.foldDark}
-                    strokeWidth="2"
-                    opacity="0.5"
-                  />
-
-                  {/* Fold/wrinkle highlights and shadows */}
-                  <g clipPath="url(#shirt-clip)" opacity="0.7">
-                    {/* Left sleeve fold */}
-                    <path d="M60,80 L90,110 L85,160 L55,120 Z" fill={selectedShirtColor.foldDark} opacity="0.3" />
-                    {/* Right sleeve fold */}
-                    <path d="M340,80 L310,110 L315,160 L345,120 Z" fill={selectedShirtColor.foldDark} opacity="0.3" />
+                  {/* Shading & wrinkle layers */}
+                  <g clipPath="url(#shirt-shape)">
+                    {/* Overall body shading */}
+                    <rect x="85" y="60" width="230" height="365" fill="url(#body-v)" opacity="0.25" />
+                    {/* Chest highlight */}
+                    <rect x="85" y="60" width="230" height="365" fill="url(#chest-hl)" opacity="0.2" />
+                    {/* Left side shadow */}
+                    <rect x="85" y="100" width="70" height="320" fill="url(#sleeve-l)" opacity="0.4" />
+                    {/* Right side shadow */}
+                    <rect x="245" y="100" width="70" height="320" fill="url(#sleeve-r)" opacity="0.4" />
                     {/* Center vertical highlight */}
-                    <rect x="185" y="90" width="30" height="310" fill="url(#fold-center)" opacity="0.4" />
-                    {/* Left body fold shadow */}
-                    <rect x="90" y="110" width="60" height="290" fill="url(#fold-left)" opacity="0.5" />
-                    {/* Right body fold shadow */}
-                    <rect x="250" y="110" width="60" height="290" fill="url(#fold-right)" opacity="0.5" />
-                    {/* Overall vertical shading */}
-                    <rect x="90" y="80" width="220" height="320" fill="url(#body-shading)" opacity="0.3" />
-                    {/* Subtle horizontal wrinkle lines */}
-                    <line x1="110" y1="200" x2="290" y2="202" stroke={selectedShirtColor.foldDark} strokeWidth="0.5" opacity="0.3" />
-                    <line x1="120" y1="280" x2="280" y2="278" stroke={selectedShirtColor.foldDark} strokeWidth="0.5" opacity="0.25" />
-                    <line x1="105" y1="350" x2="295" y2="352" stroke={selectedShirtColor.foldDark} strokeWidth="0.5" opacity="0.2" />
+                    <rect x="175" y="80" width="50" height="340" fill="url(#center-hl)" opacity="0.3" />
+                    {/* Left sleeve fold */}
+                    <path d="M62,82 L92,115 L87,175 L52,125 Z" fill={selectedShirtColor.foldDark} opacity="0.25" />
+                    {/* Right sleeve fold */}
+                    <path d="M338,82 L308,115 L313,175 L348,125 Z" fill={selectedShirtColor.foldDark} opacity="0.25" />
+                    {/* Wrinkle curves */}
+                    <path d="M110,185 Q200,190 290,183" fill="none" stroke={selectedShirtColor.foldDark} strokeWidth="0.6" opacity="0.2" />
+                    <path d="M115,250 Q195,256 285,248" fill="none" stroke={selectedShirtColor.foldDark} strokeWidth="0.5" opacity="0.18" />
+                    <path d="M108,320 Q200,326 292,318" fill="none" stroke={selectedShirtColor.foldDark} strokeWidth="0.5" opacity="0.15" />
+                    <path d="M110,375 Q200,380 290,373" fill="none" stroke={selectedShirtColor.foldDark} strokeWidth="0.4" opacity="0.12" />
+                    {/* Diagonal wrinkle from armpit */}
+                    <path d="M95,120 Q130,170 145,230" fill="none" stroke={selectedShirtColor.foldDark} strokeWidth="0.5" opacity="0.15" />
+                    <path d="M305,120 Q270,170 255,230" fill="none" stroke={selectedShirtColor.foldDark} strokeWidth="0.5" opacity="0.15" />
                   </g>
 
-                  {/* Seam lines for realism */}
-                  <line x1="90" y1="110" x2="90" y2="400" stroke={selectedShirtColor.stroke} strokeWidth="0.5" opacity="0.4" />
-                  <line x1="310" y1="110" x2="310" y2="400" stroke={selectedShirtColor.stroke} strokeWidth="0.5" opacity="0.4" />
-
-                  {/* Design image on shirt */}
-                  <image
-                    href={mockupImageUrl}
-                    x="115"
-                    y="110"
-                    width="170"
-                    height="170"
-                    preserveAspectRatio="xMidYMid meet"
-                    clipPath="inset(0)"
-                    opacity="0.92"
+                  {/* Collar */}
+                  <path
+                    d="M142,48 Q168,80 200,80 Q232,80 258,48"
+                    fill="none"
+                    stroke={selectedShirtColor.stroke}
+                    strokeWidth="2"
+                  />
+                  <path
+                    d="M147,52 Q170,74 200,74 Q230,74 253,52"
+                    fill="none"
+                    stroke={selectedShirtColor.foldDark}
+                    strokeWidth="1.5"
+                    opacity="0.4"
                   />
 
-                  {/* Design blend overlay - makes design look printed on fabric */}
+                  {/* Side seams */}
+                  <line x1="88" y1="115" x2="88" y2="420" stroke={selectedShirtColor.stroke} strokeWidth="0.4" opacity="0.3" />
+                  <line x1="312" y1="115" x2="312" y2="420" stroke={selectedShirtColor.stroke} strokeWidth="0.4" opacity="0.3" />
+
+                  {/* Design image — clipped to print area */}
+                  <image
+                    href={mockupImageUrl}
+                    x="110"
+                    y="105"
+                    width="180"
+                    height="200"
+                    preserveAspectRatio="xMidYMid meet"
+                    clipPath="url(#print-area)"
+                    opacity="0.9"
+                    style={{ mixBlendMode: "multiply" }}
+                  />
+
+                  {/* Overlay to make print look fabric-blended */}
                   <rect
-                    x="115"
-                    y="110"
-                    width="170"
-                    height="170"
-                    fill="url(#fold-center)"
-                    opacity="0.15"
+                    x="110"
+                    y="105"
+                    width="180"
+                    height="200"
+                    fill="url(#center-hl)"
+                    clipPath="url(#print-area)"
+                    opacity="0.08"
                   />
                 </svg>
               </div>
