@@ -108,7 +108,7 @@ interface TextOverlay {
 const DEFAULT_TEXT_OVERLAY: TextOverlay = {
   text: "",
   font: "Arial, sans-serif",
-  fontSize: 40,
+  fontSize: 80,
   color: "#1C1C1C",
   x: 50,
   y: 85,
@@ -827,8 +827,8 @@ export default function DesignStudioPage() {
                   </label>
                   <input
                     type="range"
-                    min={10}
-                    max={100}
+                    min={20}
+                    max={200}
                     value={textOverlay.fontSize}
                     onChange={(e) =>
                       setTextOverlay((prev) => ({
