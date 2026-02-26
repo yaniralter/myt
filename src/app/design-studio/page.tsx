@@ -20,7 +20,7 @@ import {
   AlignCenter,
   AlignRight,
   Palette,
-  Move,
+
   Image as ImageIcon,
   Upload,
   ZoomIn,
@@ -192,11 +192,9 @@ export default function DesignStudioPage() {
   const [mockupError, setMockupError] = useState("");
 
   /* Text overlay */
-  const [showTextEditor, setShowTextEditor] = useState(false);
   const [textOverlay, setTextOverlay] = useState<TextOverlay>(DEFAULT_TEXT_OVERLAY);
   const [savingComposite, setSavingComposite] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [compositePreviewUrl, setCompositePreviewUrl] = useState<string | null>(null);
   const [loadedImage, setLoadedImage] = useState<HTMLImageElement | null>(null);
 
   /* Save state */
@@ -315,10 +313,9 @@ export default function DesignStudioPage() {
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 0;
     }
-    setCompositePreviewUrl(canvas.toDataURL("image/png"));
   }, [loadedImage, textOverlay]);
 
-  useEffect(() => { renderComposite(); }, [renderComposite]);
+  // renderComposite is only called on-demand when saving (not on every text change)
 
   /* ─── Helpers ─── */
 
@@ -356,7 +353,7 @@ export default function DesignStudioPage() {
     setActiveVersionIndex(index);
     setIsDesignSaved(false);
     setLastPromptUsed(v.prompt);
-    setCompositePreviewUrl(null);
+
   }
 
   /* ─── Printify ─── */
@@ -399,7 +396,7 @@ export default function DesignStudioPage() {
     if (!designPrompt.trim()) return;
     setError("");
     setGenerating(true);
-    setCompositePreviewUrl(null);
+
     setPrintifyData(null);
     setMockupError("");
 
@@ -480,6 +477,8 @@ export default function DesignStudioPage() {
     setError("");
     setSavingComposite(true);
     try {
+      // Render the composite right before saving (not on every text change)
+      renderComposite();
       const imageData = canvasRef.current.toDataURL("image/png");
       const promptWithText = textOverlay.text.trim()
         ? `${currentDesign.prompt} [text: "${textOverlay.text.trim()}"]`
@@ -499,7 +498,6 @@ export default function DesignStudioPage() {
       setCurrentDesign(data.design);
       setDesigns((prev) => [data.design, ...prev]);
       setIsDesignSaved(true);
-      setShowTextEditor(false);
       setTextOverlay(DEFAULT_TEXT_OVERLAY);
       fetchPrintifyMockups(data.design);
     } catch (err: unknown) {
@@ -541,7 +539,7 @@ export default function DesignStudioPage() {
     if (!file) return;
     setError("");
     setUploading(true);
-    setCompositePreviewUrl(null);
+
     setPrintifyData(null);
     setMockupError("");
     try {
@@ -576,8 +574,7 @@ export default function DesignStudioPage() {
 
   const printifyMockupForColor = printifyData?.mockups[selectedShirtColor.printifyName];
   const hasPrintifyMockup = !!printifyMockupForColor;
-  const svgMockupImageUrl =
-    showTextEditor && compositePreviewUrl ? compositePreviewUrl : currentDesign?.image_url;
+  const svgMockupImageUrl = currentDesign?.image_url;
   const sc = selectedShirtColor;
 
   const previousVersion = activeVersionIndex > 0 ? versions[activeVersionIndex - 1] : null;
@@ -1035,52 +1032,118 @@ export default function DesignStudioPage() {
                 )}
 
                 {hasPrintifyMockup ? (
-                  <img
-                    src={printifyMockupForColor}
-                    alt={`${selectedShirtColor.name} t-shirt mockup`}
-                    className="w-full h-full object-contain p-4"
-                    style={{ maxHeight: 600 }}
-                  />
+                  <div className="relative w-full h-full flex items-center justify-center">
+                    <img
+                      src={printifyMockupForColor}
+                      alt={`${selectedShirtColor.name} t-shirt mockup`}
+                      className="w-full h-full object-contain p-4"
+                      style={{ maxHeight: 600 }}
+                    />
+                    {/* CSS Text overlay on Printify mockup */}
+                    {textOverlay.text.trim() && (
+                      <div
+                        className="absolute pointer-events-none"
+                        style={{
+                          left: `${25 + (textOverlay.x / 100) * 50}%`,
+                          top: `${20 + (textOverlay.y / 100) * 45}%`,
+                          transform: "translate(-50%, -50%)",
+                          fontFamily: textOverlay.font,
+                          fontSize: `${textOverlay.fontSize * 0.35}px`,
+                          fontWeight: textOverlay.bold ? "bold" : "normal",
+                          fontStyle: textOverlay.italic ? "italic" : "normal",
+                          color: textOverlay.color,
+                          textAlign: textOverlay.align,
+                          whiteSpace: "nowrap",
+                          textShadow: textOverlay.outline
+                            ? `
+                              -1px -1px 0 ${parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000"},
+                               1px -1px 0 ${parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000"},
+                              -1px  1px 0 ${parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000"},
+                               1px  1px 0 ${parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000"}
+                            `
+                            : "1px 1px 3px rgba(0,0,0,0.4)",
+                          maxWidth: "50%",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {textOverlay.text}
+                      </div>
+                    )}
+                  </div>
                 ) : (
-                  <svg viewBox="0 0 400 480" className="drop-shadow-lg p-4" style={{ maxHeight: 560, width: "auto" }} xmlns="http://www.w3.org/2000/svg">
-                    <defs>
-                      <filter id="fabric" x="-5%" y="-5%" width="110%" height="110%">
-                        <feTurbulence type="fractalNoise" baseFrequency="1.2" numOctaves="6" seed="5" result="noise" />
-                        <feColorMatrix type="saturate" values="0" in="noise" result="gray" />
-                        <feBlend in="SourceGraphic" in2="gray" mode="multiply" result="tex" />
-                        <feComposite in="tex" in2="SourceGraphic" operator="in" />
-                      </filter>
-                      <linearGradient id="sleeve-l" x1="0" y1="0" x2="1" y2="0.3"><stop offset="0%" stopColor={sc.foldDark} /><stop offset="100%" stopColor="transparent" /></linearGradient>
-                      <linearGradient id="sleeve-r" x1="1" y1="0" x2="0" y2="0.3"><stop offset="0%" stopColor={sc.foldDark} /><stop offset="100%" stopColor="transparent" /></linearGradient>
-                      <linearGradient id="center-hl" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="transparent" /><stop offset="35%" stopColor={sc.foldLight} /><stop offset="65%" stopColor="transparent" /></linearGradient>
-                      <linearGradient id="body-v" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={sc.foldLight} /><stop offset="40%" stopColor="transparent" /><stop offset="100%" stopColor={sc.foldDark} /></linearGradient>
-                      <radialGradient id="chest-hl" cx="50%" cy="35%" r="35%"><stop offset="0%" stopColor={sc.foldLight} /><stop offset="100%" stopColor="transparent" /></radialGradient>
-                      <clipPath id="shirt-shape"><path d="M105,62 L62,82 L18,148 L72,168 L92,115 L88,420 L312,420 L308,115 L328,168 L382,148 L338,82 L295,62 L258,48 Q232,82 200,82 Q168,82 142,48 Z" /></clipPath>
-                      <clipPath id="print-area"><rect x="110" y="105" width="180" height="200" rx="4" /></clipPath>
-                    </defs>
-                    <ellipse cx="200" cy="448" rx="140" ry="12" fill="rgba(0,0,0,0.10)" />
-                    <path d="M105,62 L62,82 L18,148 L72,168 L92,115 L88,420 L312,420 L308,115 L328,168 L382,148 L338,82 L295,62 L258,48 Q232,82 200,82 Q168,82 142,48 Z" fill={sc.fill} stroke={sc.stroke} strokeWidth="1" filter="url(#fabric)" />
-                    <g clipPath="url(#shirt-shape)">
-                      <rect x="85" y="60" width="230" height="365" fill="url(#body-v)" opacity="0.25" />
-                      <rect x="85" y="60" width="230" height="365" fill="url(#chest-hl)" opacity="0.2" />
-                      <rect x="85" y="100" width="70" height="320" fill="url(#sleeve-l)" opacity="0.4" />
-                      <rect x="245" y="100" width="70" height="320" fill="url(#sleeve-r)" opacity="0.4" />
-                      <rect x="175" y="80" width="50" height="340" fill="url(#center-hl)" opacity="0.3" />
-                      <path d="M62,82 L92,115 L87,175 L52,125 Z" fill={sc.foldDark} opacity="0.25" />
-                      <path d="M338,82 L308,115 L313,175 L348,125 Z" fill={sc.foldDark} opacity="0.25" />
-                      <path d="M110,185 Q200,190 290,183" fill="none" stroke={sc.foldDark} strokeWidth="0.6" opacity="0.2" />
-                      <path d="M115,250 Q195,256 285,248" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.18" />
-                      <path d="M108,320 Q200,326 292,318" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.15" />
-                      <path d="M95,120 Q130,170 145,230" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.15" />
-                      <path d="M305,120 Q270,170 255,230" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.15" />
-                    </g>
-                    <path d="M142,48 Q168,80 200,80 Q232,80 258,48" fill="none" stroke={sc.stroke} strokeWidth="2" />
-                    <path d="M147,52 Q170,74 200,74 Q230,74 253,52" fill="none" stroke={sc.foldDark} strokeWidth="1.5" opacity="0.4" />
-                    <line x1="88" y1="115" x2="88" y2="420" stroke={sc.stroke} strokeWidth="0.4" opacity="0.3" />
-                    <line x1="312" y1="115" x2="312" y2="420" stroke={sc.stroke} strokeWidth="0.4" opacity="0.3" />
-                    <image href={svgMockupImageUrl} x="110" y="105" width="180" height="200" preserveAspectRatio="xMidYMid meet" clipPath="url(#print-area)" opacity="0.9" style={{ mixBlendMode: "multiply" }} />
-                    <rect x="110" y="105" width="180" height="200" fill="url(#center-hl)" clipPath="url(#print-area)" opacity="0.08" />
-                  </svg>
+                  <div className="relative flex items-center justify-center">
+                    <svg viewBox="0 0 400 480" className="drop-shadow-lg p-4" style={{ maxHeight: 560, width: "auto" }} xmlns="http://www.w3.org/2000/svg">
+                      <defs>
+                        <filter id="fabric" x="-5%" y="-5%" width="110%" height="110%">
+                          <feTurbulence type="fractalNoise" baseFrequency="1.2" numOctaves="6" seed="5" result="noise" />
+                          <feColorMatrix type="saturate" values="0" in="noise" result="gray" />
+                          <feBlend in="SourceGraphic" in2="gray" mode="multiply" result="tex" />
+                          <feComposite in="tex" in2="SourceGraphic" operator="in" />
+                        </filter>
+                        <linearGradient id="sleeve-l" x1="0" y1="0" x2="1" y2="0.3"><stop offset="0%" stopColor={sc.foldDark} /><stop offset="100%" stopColor="transparent" /></linearGradient>
+                        <linearGradient id="sleeve-r" x1="1" y1="0" x2="0" y2="0.3"><stop offset="0%" stopColor={sc.foldDark} /><stop offset="100%" stopColor="transparent" /></linearGradient>
+                        <linearGradient id="center-hl" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="transparent" /><stop offset="35%" stopColor={sc.foldLight} /><stop offset="65%" stopColor="transparent" /></linearGradient>
+                        <linearGradient id="body-v" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={sc.foldLight} /><stop offset="40%" stopColor="transparent" /><stop offset="100%" stopColor={sc.foldDark} /></linearGradient>
+                        <radialGradient id="chest-hl" cx="50%" cy="35%" r="35%"><stop offset="0%" stopColor={sc.foldLight} /><stop offset="100%" stopColor="transparent" /></radialGradient>
+                        <clipPath id="shirt-shape"><path d="M105,62 L62,82 L18,148 L72,168 L92,115 L88,420 L312,420 L308,115 L328,168 L382,148 L338,82 L295,62 L258,48 Q232,82 200,82 Q168,82 142,48 Z" /></clipPath>
+                        <clipPath id="print-area"><rect x="110" y="105" width="180" height="200" rx="4" /></clipPath>
+                      </defs>
+                      <ellipse cx="200" cy="448" rx="140" ry="12" fill="rgba(0,0,0,0.10)" />
+                      <path d="M105,62 L62,82 L18,148 L72,168 L92,115 L88,420 L312,420 L308,115 L328,168 L382,148 L338,82 L295,62 L258,48 Q232,82 200,82 Q168,82 142,48 Z" fill={sc.fill} stroke={sc.stroke} strokeWidth="1" filter="url(#fabric)" />
+                      <g clipPath="url(#shirt-shape)">
+                        <rect x="85" y="60" width="230" height="365" fill="url(#body-v)" opacity="0.25" />
+                        <rect x="85" y="60" width="230" height="365" fill="url(#chest-hl)" opacity="0.2" />
+                        <rect x="85" y="100" width="70" height="320" fill="url(#sleeve-l)" opacity="0.4" />
+                        <rect x="245" y="100" width="70" height="320" fill="url(#sleeve-r)" opacity="0.4" />
+                        <rect x="175" y="80" width="50" height="340" fill="url(#center-hl)" opacity="0.3" />
+                        <path d="M62,82 L92,115 L87,175 L52,125 Z" fill={sc.foldDark} opacity="0.25" />
+                        <path d="M338,82 L308,115 L313,175 L348,125 Z" fill={sc.foldDark} opacity="0.25" />
+                        <path d="M110,185 Q200,190 290,183" fill="none" stroke={sc.foldDark} strokeWidth="0.6" opacity="0.2" />
+                        <path d="M115,250 Q195,256 285,248" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.18" />
+                        <path d="M108,320 Q200,326 292,318" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.15" />
+                        <path d="M95,120 Q130,170 145,230" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.15" />
+                        <path d="M305,120 Q270,170 255,230" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.15" />
+                      </g>
+                      <path d="M142,48 Q168,80 200,80 Q232,80 258,48" fill="none" stroke={sc.stroke} strokeWidth="2" />
+                      <path d="M147,52 Q170,74 200,74 Q230,74 253,52" fill="none" stroke={sc.foldDark} strokeWidth="1.5" opacity="0.4" />
+                      <line x1="88" y1="115" x2="88" y2="420" stroke={sc.stroke} strokeWidth="0.4" opacity="0.3" />
+                      <line x1="312" y1="115" x2="312" y2="420" stroke={sc.stroke} strokeWidth="0.4" opacity="0.3" />
+                      <image href={svgMockupImageUrl} x="110" y="105" width="180" height="200" preserveAspectRatio="xMidYMid meet" clipPath="url(#print-area)" opacity="0.9" style={{ mixBlendMode: "multiply" }} />
+                      <rect x="110" y="105" width="180" height="200" fill="url(#center-hl)" clipPath="url(#print-area)" opacity="0.08" />
+                    </svg>
+                    {/* CSS Text overlay on SVG mockup */}
+                    {textOverlay.text.trim() && (
+                      <div
+                        className="absolute pointer-events-none"
+                        style={{
+                          left: `${27.5 + (textOverlay.x / 100) * 45}%`,
+                          top: `${22 + (textOverlay.y / 100) * 42}%`,
+                          transform: "translate(-50%, -50%)",
+                          fontFamily: textOverlay.font,
+                          fontSize: `${textOverlay.fontSize * 0.3}px`,
+                          fontWeight: textOverlay.bold ? "bold" : "normal",
+                          fontStyle: textOverlay.italic ? "italic" : "normal",
+                          color: textOverlay.color,
+                          textAlign: textOverlay.align,
+                          whiteSpace: "nowrap",
+                          textShadow: textOverlay.outline
+                            ? `
+                              -1px -1px 0 ${parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000"},
+                               1px -1px 0 ${parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000"},
+                              -1px  1px 0 ${parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000"},
+                               1px  1px 0 ${parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000"}
+                            `
+                            : "1px 1px 3px rgba(0,0,0,0.4)",
+                          maxWidth: "45%",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {textOverlay.text}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -1090,78 +1153,75 @@ export default function DesignStudioPage() {
                 </p>
               )}
 
-              {/* Text overlay editor (in shirt mode) */}
-              {showTextEditor && (
-                <div className="p-4 border border-accent/30 rounded-xl bg-surface-raised space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-primary flex items-center gap-2">
-                      <Type className="w-4 h-4 text-accent" />
-                      Text Overlay
-                    </h3>
-                    <button onClick={() => { setShowTextEditor(false); setTextOverlay(DEFAULT_TEXT_OVERLAY); setCompositePreviewUrl(null); }} className="text-muted-foreground hover:text-primary">
-                      <X className="w-4 h-4" />
+              {/* Text overlay editor — always visible in shirt mode */}
+              <div className="p-4 border border-accent/30 rounded-xl bg-surface-raised space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-primary flex items-center gap-2">
+                    <Type className="w-4 h-4 text-accent" />
+                    Text Overlay
+                  </h3>
+                  {textOverlay.text.trim() && (
+                    <button onClick={() => { setTextOverlay(DEFAULT_TEXT_OVERLAY); }} className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1">
+                      <X className="w-3 h-3" />
+                      Clear
                     </button>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={textOverlay.text}
+                  onChange={(e) => setTextOverlay((prev) => ({ ...prev, text: e.target.value.slice(0, 100) }))}
+                  placeholder="Enter text to add..."
+                  maxLength={100}
+                  className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-primary placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <select
+                    value={textOverlay.font}
+                    onChange={(e) => setTextOverlay((prev) => ({ ...prev, font: e.target.value }))}
+                    className="px-3 py-2 bg-surface border border-border rounded-lg text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent"
+                  >
+                    {FONT_OPTIONS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+                  </select>
+                  <div>
+                    <span className="text-xs text-muted-foreground">Size: {textOverlay.fontSize}px</span>
+                    <input type="range" min={20} max={200} value={textOverlay.fontSize} onChange={(e) => setTextOverlay((prev) => ({ ...prev, fontSize: Number(e.target.value) }))} className="w-full accent-accent" />
                   </div>
-                  <input
-                    type="text"
-                    value={textOverlay.text}
-                    onChange={(e) => setTextOverlay((prev) => ({ ...prev, text: e.target.value.slice(0, 100) }))}
-                    placeholder="Enter text to add..."
-                    maxLength={100}
-                    className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-primary placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                  />
-                  <div className="grid grid-cols-2 gap-3">
-                    <select
-                      value={textOverlay.font}
-                      onChange={(e) => setTextOverlay((prev) => ({ ...prev, font: e.target.value }))}
-                      className="px-3 py-2 bg-surface border border-border rounded-lg text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent"
-                    >
-                      {FONT_OPTIONS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
-                    </select>
-                    <div>
-                      <span className="text-xs text-muted-foreground">Size: {textOverlay.fontSize}px</span>
-                      <input type="range" min={20} max={200} value={textOverlay.fontSize} onChange={(e) => setTextOverlay((prev) => ({ ...prev, fontSize: Number(e.target.value) }))} className="w-full accent-accent" />
-                    </div>
+                </div>
+                <div className="flex items-end gap-3">
+                  <div className="flex items-center gap-2">
+                    <input type="color" value={textOverlay.color} onChange={(e) => setTextOverlay((prev) => ({ ...prev, color: e.target.value }))} className="w-8 h-8 rounded border border-border cursor-pointer bg-transparent" />
+                    <span className="text-xs text-muted-foreground font-mono">{textOverlay.color.toUpperCase()}</span>
                   </div>
-                  <div className="flex items-end gap-3">
-                    <div className="flex items-center gap-2">
-                      <input type="color" value={textOverlay.color} onChange={(e) => setTextOverlay((prev) => ({ ...prev, color: e.target.value }))} className="w-8 h-8 rounded border border-border cursor-pointer bg-transparent" />
-                      <span className="text-xs text-muted-foreground font-mono">{textOverlay.color.toUpperCase()}</span>
-                    </div>
-                    <button type="button" onClick={() => setTextOverlay((prev) => ({ ...prev, bold: !prev.bold }))} className={`p-2 rounded-lg border text-sm transition-colors ${textOverlay.bold ? "border-accent bg-accent/10 text-accent" : "border-border text-muted-foreground"}`}><Bold className="w-4 h-4" /></button>
-                    <button type="button" onClick={() => setTextOverlay((prev) => ({ ...prev, italic: !prev.italic }))} className={`p-2 rounded-lg border text-sm transition-colors ${textOverlay.italic ? "border-accent bg-accent/10 text-accent" : "border-border text-muted-foreground"}`}><Italic className="w-4 h-4" /></button>
-                    <button type="button" onClick={() => setTextOverlay((prev) => ({ ...prev, outline: !prev.outline }))} className={`px-2 py-2 rounded-lg border text-xs font-medium transition-colors ${textOverlay.outline ? "border-accent bg-accent/10 text-accent" : "border-border text-muted-foreground"}`}>{textOverlay.outline ? "Outline ON" : "Outline OFF"}</button>
+                  <button type="button" onClick={() => setTextOverlay((prev) => ({ ...prev, bold: !prev.bold }))} className={`p-2 rounded-lg border text-sm transition-colors ${textOverlay.bold ? "border-accent bg-accent/10 text-accent" : "border-border text-muted-foreground"}`}><Bold className="w-4 h-4" /></button>
+                  <button type="button" onClick={() => setTextOverlay((prev) => ({ ...prev, italic: !prev.italic }))} className={`p-2 rounded-lg border text-sm transition-colors ${textOverlay.italic ? "border-accent bg-accent/10 text-accent" : "border-border text-muted-foreground"}`}><Italic className="w-4 h-4" /></button>
+                  <button type="button" onClick={() => setTextOverlay((prev) => ({ ...prev, outline: !prev.outline }))} className={`px-2 py-2 rounded-lg border text-xs font-medium transition-colors ${textOverlay.outline ? "border-accent bg-accent/10 text-accent" : "border-border text-muted-foreground"}`}>{textOverlay.outline ? "Outline ON" : "Outline OFF"}</button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="flex justify-between text-xs text-muted-foreground mb-0.5"><span>X</span><span>{textOverlay.x}%</span></div>
+                    <input type="range" min={0} max={100} value={textOverlay.x} onChange={(e) => setTextOverlay((prev) => ({ ...prev, x: Number(e.target.value) }))} className="w-full accent-accent" />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="flex justify-between text-xs text-muted-foreground mb-0.5"><span>X</span><span>{textOverlay.x}%</span></div>
-                      <input type="range" min={0} max={100} value={textOverlay.x} onChange={(e) => setTextOverlay((prev) => ({ ...prev, x: Number(e.target.value) }))} className="w-full accent-accent" />
-                    </div>
-                    <div>
-                      <div className="flex justify-between text-xs text-muted-foreground mb-0.5"><span>Y</span><span>{textOverlay.y}%</span></div>
-                      <input type="range" min={0} max={100} value={textOverlay.y} onChange={(e) => setTextOverlay((prev) => ({ ...prev, y: Number(e.target.value) }))} className="w-full accent-accent" />
-                    </div>
+                  <div>
+                    <div className="flex justify-between text-xs text-muted-foreground mb-0.5"><span>Y</span><span>{textOverlay.y}%</span></div>
+                    <input type="range" min={0} max={100} value={textOverlay.y} onChange={(e) => setTextOverlay((prev) => ({ ...prev, y: Number(e.target.value) }))} className="w-full accent-accent" />
                   </div>
-                  <div className="flex gap-2">
-                    {([{ value: "left", icon: AlignLeft }, { value: "center", icon: AlignCenter }, { value: "right", icon: AlignRight }] as const).map(({ value, icon: Icon }) => (
-                      <button key={value} type="button" onClick={() => setTextOverlay((prev) => ({ ...prev, align: value }))} className={`flex-1 py-2 rounded-lg border flex items-center justify-center transition-colors ${textOverlay.align === value ? "border-accent bg-accent/10 text-accent" : "border-border text-muted-foreground"}`}><Icon className="w-4 h-4" /></button>
-                    ))}
-                  </div>
-                  <button onClick={handleSaveComposite} disabled={savingComposite || !textOverlay.text.trim()} className="w-full bg-accent text-accent-foreground py-2.5 rounded-lg font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                </div>
+                <div className="flex gap-2">
+                  {([{ value: "left", icon: AlignLeft }, { value: "center", icon: AlignCenter }, { value: "right", icon: AlignRight }] as const).map(({ value, icon: Icon }) => (
+                    <button key={value} type="button" onClick={() => setTextOverlay((prev) => ({ ...prev, align: value }))} className={`flex-1 py-2 rounded-lg border flex items-center justify-center transition-colors ${textOverlay.align === value ? "border-accent bg-accent/10 text-accent" : "border-border text-muted-foreground"}`}><Icon className="w-4 h-4" /></button>
+                  ))}
+                </div>
+                {textOverlay.text.trim() && (
+                  <button onClick={handleSaveComposite} disabled={savingComposite} className="w-full bg-accent text-accent-foreground py-2.5 rounded-lg font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                     {savingComposite ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                     {savingComposite ? "Saving..." : "Save Design with Text"}
                   </button>
-                </div>
-              )}
+                )}
+              </div>
 
               {/* Actions */}
               <div className="flex flex-wrap gap-2">
-                {!showTextEditor && (
-                  <button onClick={() => setShowTextEditor(true)} className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-lg text-sm font-medium hover:bg-surface-raised transition-colors text-primary">
-                    <Type className="w-4 h-4" />
-                    Add Text
-                  </button>
-                )}
                 {!isDesignSaved && (
                   <button onClick={handleSaveToGallery} disabled={savingToGallery} className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors">
                     {savingToGallery ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -1251,9 +1311,8 @@ export default function DesignStudioPage() {
                       setCurrentDesign(design);
                       setIsDesignSaved(true);
                       setLastPromptUsed(design.prompt);
-                      setShowTextEditor(false);
                       setTextOverlay(DEFAULT_TEXT_OVERLAY);
-                      setCompositePreviewUrl(null);
+                  
                       setPrintifyData(null);
                       setMode("canvas");
                       setVersions([{ imageUrl: design.image_url, prompt: design.prompt, label: "V1", style: design.style, colors: design.colors }]);
