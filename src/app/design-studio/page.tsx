@@ -23,8 +23,19 @@ import {
   Move,
   Image as ImageIcon,
   Upload,
+  ZoomIn,
+  ZoomOut,
+  Wand2,
+  History,
+  Columns2,
+  Shirt,
+  PenTool,
+  ChevronLeft,
+  Info,
 } from "lucide-react";
 import type { Design } from "@/lib/types";
+
+/* ─── Constants ─── */
 
 const STYLE_PRESETS = [
   { id: "vintage", label: "Vintage", emoji: "\u{1F3B6}" },
@@ -71,10 +82,9 @@ const FONT_OPTIONS = [
   { value: "'Courier New', monospace", label: "Courier" },
 ];
 
-// Shirt colors for the SVG fallback mockup and Printify color selector
 interface ShirtColor {
   name: string;
-  printifyName: string; // Maps to Printify's color name
+  printifyName: string;
   fill: string;
   stroke: string;
   foldLight: string;
@@ -118,36 +128,70 @@ const DEFAULT_TEXT_OVERLAY: TextOverlay = {
   outline: true,
 };
 
-// Printify mockup data per design
 interface PrintifyMockupData {
   printifyProductId: string;
-  mockups: Record<string, string>; // color name → mockup image URL
+  mockups: Record<string, string>;
   defaultMockup: string | null;
 }
 
+/* Version history entry */
+interface DesignVersion {
+  imageUrl: string;
+  prompt: string;
+  label: string;
+  style: string | null;
+  colors: string[] | null;
+}
+
+type StudioMode = "canvas" | "shirt";
+
+/* ─── Component ─── */
+
 export default function DesignStudioPage() {
+  /* Generation controls */
   const [prompt, setPrompt] = useState("");
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
   const [selectedColors, setSelectedColors] = useState<string[]>([]);
   const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState("");
+
+  /* Current design (may be unsaved) */
   const [currentDesign, setCurrentDesign] = useState<Design | null>(null);
   const [lastPromptUsed, setLastPromptUsed] = useState("");
   const [lastStyleUsed, setLastStyleUsed] = useState<string | null>(null);
   const [lastColorsUsed, setLastColorsUsed] = useState<string[]>([]);
+
+  /* Gallery (saved designs from DB) */
   const [designs, setDesigns] = useState<Design[]>([]);
-  const [error, setError] = useState("");
   const [hasShop, setHasShop] = useState(false);
   const supabase = createClient();
 
-  // Shirt color selection
+  /* Studio mode: canvas (default) or shirt preview */
+  const [mode, setMode] = useState<StudioMode>("canvas");
+
+  /* Canvas zoom */
+  const [zoom, setZoom] = useState(100);
+
+  /* Iterative refinement */
+  const [refinementInput, setRefinementInput] = useState("");
+  const [showRefinement, setShowRefinement] = useState(false);
+
+  /* Version history (max 10) */
+  const [versions, setVersions] = useState<DesignVersion[]>([]);
+  const [activeVersionIndex, setActiveVersionIndex] = useState(0);
+
+  /* Before/after comparison */
+  const [showComparison, setShowComparison] = useState(false);
+
+  /* Shirt color */
   const [selectedShirtColor, setSelectedShirtColor] = useState(SHIRT_COLORS[0]);
 
-  // Printify mockup state
+  /* Printify */
   const [printifyData, setPrintifyData] = useState<PrintifyMockupData | null>(null);
   const [loadingMockups, setLoadingMockups] = useState(false);
   const [mockupError, setMockupError] = useState("");
 
-  // Text overlay state
+  /* Text overlay */
   const [showTextEditor, setShowTextEditor] = useState(false);
   const [textOverlay, setTextOverlay] = useState<TextOverlay>(DEFAULT_TEXT_OVERLAY);
   const [savingComposite, setSavingComposite] = useState(false);
@@ -155,41 +199,36 @@ export default function DesignStudioPage() {
   const [compositePreviewUrl, setCompositePreviewUrl] = useState<string | null>(null);
   const [loadedImage, setLoadedImage] = useState<HTMLImageElement | null>(null);
 
-  // Manual save state — designs are NOT saved to gallery automatically
+  /* Save state */
   const [isDesignSaved, setIsDesignSaved] = useState(false);
   const [savingToGallery, setSavingToGallery] = useState(false);
 
-  // Custom image upload
+  /* Upload */
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
+  /* ─── Effects ─── */
+
   useEffect(() => {
     async function load() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-
       const { data: designsData } = await supabase
         .from("designs")
         .select("*")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
-
       if (designsData) setDesigns(designsData);
-
       const { data: shop } = await supabase
         .from("shops")
         .select("id")
         .eq("owner_id", user.id)
         .single();
-
       if (shop) setHasShop(true);
     }
     load();
   }, []);
 
-  // Auto-adjust text color for contrast when shirt color changes
   useEffect(() => {
     setTextOverlay((prev) => ({
       ...prev,
@@ -197,7 +236,6 @@ export default function DesignStudioPage() {
     }));
   }, [selectedShirtColor]);
 
-  // Load Google Fonts for text overlay
   useEffect(() => {
     if (typeof document === "undefined") return;
     const existing = document.getElementById("myt-google-fonts");
@@ -210,12 +248,8 @@ export default function DesignStudioPage() {
     document.head.appendChild(link);
   }, []);
 
-  // Load the design image when currentDesign changes (for text overlay compositing)
   useEffect(() => {
-    if (!currentDesign) {
-      setLoadedImage(null);
-      return;
-    }
+    if (!currentDesign) { setLoadedImage(null); return; }
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => setLoadedImage(img);
@@ -223,55 +257,44 @@ export default function DesignStudioPage() {
     img.src = currentDesign.image_url;
   }, [currentDesign?.image_url]);
 
-  // Render composite whenever text overlay or loaded image changes
   const renderComposite = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !loadedImage) return;
-
     const size = 1024;
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-
     ctx.clearRect(0, 0, size, size);
     ctx.drawImage(loadedImage, 0, 0, size, size);
-
     if (textOverlay.text.trim()) {
       const fontWeight = textOverlay.bold ? "bold" : "normal";
       const fontStyle = textOverlay.italic ? "italic" : "normal";
       ctx.font = `${fontStyle} ${fontWeight} ${textOverlay.fontSize}px ${textOverlay.font}`;
       ctx.fillStyle = textOverlay.color;
       ctx.textAlign = textOverlay.align;
-
       const x = (textOverlay.x / 100) * size;
       const baseY = (textOverlay.y / 100) * size;
-
       const isTextDark =
         parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 +
         parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 +
         parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128;
-
-      ctx.shadowColor = isTextDark ? "rgba(255, 255, 255, 0.5)" : "rgba(0, 0, 0, 0.6)";
+      ctx.shadowColor = isTextDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.6)";
       ctx.shadowBlur = 4;
       ctx.shadowOffsetX = 1;
       ctx.shadowOffsetY = 1;
-
       if (textOverlay.outline) {
         ctx.strokeStyle = isTextDark ? "#FFFFFF" : "#000000";
         ctx.lineWidth = Math.max(2, textOverlay.fontSize / 12);
         ctx.lineJoin = "round";
       }
-
       const maxWidth = size - 80;
       const words = textOverlay.text.split(" ");
       const lines: string[] = [];
       let currentLine = words[0] || "";
-
       for (let i = 1; i < words.length; i++) {
         const testLine = currentLine + " " + words[i];
-        const metrics = ctx.measureText(testLine);
-        if (metrics.width > maxWidth) {
+        if (ctx.measureText(testLine).width > maxWidth) {
           lines.push(currentLine);
           currentLine = words[i];
         } else {
@@ -279,47 +302,68 @@ export default function DesignStudioPage() {
         }
       }
       lines.push(currentLine);
-
       const lineHeight = textOverlay.fontSize * 1.2;
       const totalHeight = lines.length * lineHeight;
       let y = baseY - totalHeight / 2 + textOverlay.fontSize;
-
       for (const line of lines) {
-        if (textOverlay.outline) {
-          ctx.strokeText(line, x, y);
-        }
+        if (textOverlay.outline) ctx.strokeText(line, x, y);
         ctx.fillText(line, x, y);
         y += lineHeight;
       }
-
       ctx.shadowColor = "transparent";
       ctx.shadowBlur = 0;
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 0;
     }
-
     setCompositePreviewUrl(canvas.toDataURL("image/png"));
   }, [loadedImage, textOverlay]);
 
-  useEffect(() => {
-    renderComposite();
-  }, [renderComposite]);
+  useEffect(() => { renderComposite(); }, [renderComposite]);
+
+  /* ─── Helpers ─── */
 
   function toggleColor(colorName: string) {
     setSelectedColors((prev) => {
-      if (prev.includes(colorName)) {
-        return prev.filter((c) => c !== colorName);
-      }
+      if (prev.includes(colorName)) return prev.filter((c) => c !== colorName);
       if (prev.length >= 3) return prev;
       return [...prev, colorName];
     });
   }
 
-  // Fetch Printify mockups for a design (runs in background)
+  function addVersion(imageUrl: string, prompt: string, label: string, style: string | null, colors: string[] | null) {
+    setVersions((prev) => {
+      const next = [...prev, { imageUrl, prompt, label, style, colors }];
+      if (next.length > 10) next.shift();
+      return next;
+    });
+    // Set active to the newest
+    setActiveVersionIndex((prev) => Math.min(prev + 1, 9));
+  }
+
+  function restoreVersion(index: number) {
+    const v = versions[index];
+    if (!v) return;
+    const restored: Design = {
+      id: `temp-${Date.now()}`,
+      user_id: "",
+      prompt: v.prompt,
+      image_url: v.imageUrl,
+      style: v.style,
+      colors: v.colors,
+      created_at: new Date().toISOString(),
+    };
+    setCurrentDesign(restored);
+    setActiveVersionIndex(index);
+    setIsDesignSaved(false);
+    setLastPromptUsed(v.prompt);
+    setCompositePreviewUrl(null);
+  }
+
+  /* ─── Printify ─── */
+
   async function fetchPrintifyMockups(design: Design) {
     setLoadingMockups(true);
     setMockupError("");
-
     try {
       const res = await fetch("/api/printify/mockups", {
         method: "POST",
@@ -330,12 +374,10 @@ export default function DesignStudioPage() {
           designId: design.id,
         }),
       });
-
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || "Mockup generation failed");
       }
-
       const data = await res.json();
       setPrintifyData({
         printifyProductId: data.printifyProductId,
@@ -351,15 +393,12 @@ export default function DesignStudioPage() {
     }
   }
 
-  async function generateDesign(
-    designPrompt: string,
-    style: string | null,
-    colors: string[]
-  ) {
+  /* ─── Generate / Refine ─── */
+
+  async function generateDesign(designPrompt: string, style: string | null, colors: string[], versionLabel?: string) {
     if (!designPrompt.trim()) return;
     setError("");
     setGenerating(true);
-    // Preserve text overlay state across regenerate/variation
     setCompositePreviewUrl(null);
     setPrintifyData(null);
     setMockupError("");
@@ -374,11 +413,9 @@ export default function DesignStudioPage() {
           colors: colors.length > 0 ? colors : undefined,
         }),
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      // Create a temporary design object (NOT saved to DB yet)
       const tempDesign: Design = {
         id: `temp-${Date.now()}`,
         user_id: "",
@@ -394,13 +431,13 @@ export default function DesignStudioPage() {
       setLastPromptUsed(designPrompt.trim());
       setLastStyleUsed(style);
       setLastColorsUsed(colors);
+      setMode("canvas");
 
-      // Fetch Printify mockups in background (non-blocking)
-      fetchPrintifyMockups(tempDesign);
+      // Add to version history
+      const label = versionLabel || `V${versions.length + 1}`;
+      addVersion(data.imageUrl, data.prompt, label, data.style, data.colors);
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Failed to generate design";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Failed to generate design");
     } finally {
       setGenerating(false);
     }
@@ -408,34 +445,45 @@ export default function DesignStudioPage() {
 
   async function handleGenerate(e: React.FormEvent) {
     e.preventDefault();
-    await generateDesign(prompt, selectedStyle, selectedColors);
+    // Reset version history for a brand new generation
+    setVersions([]);
+    setActiveVersionIndex(0);
+    setShowRefinement(false);
+    setShowComparison(false);
+    await generateDesign(prompt, selectedStyle, selectedColors, "V1");
     setPrompt("");
   }
 
   async function handleRegenerate() {
     if (!lastPromptUsed) return;
-    await generateDesign(lastPromptUsed, lastStyleUsed, lastColorsUsed);
+    await generateDesign(lastPromptUsed, lastStyleUsed, lastColorsUsed, `V${versions.length + 1}`);
   }
 
   async function handleVariation() {
     if (!lastPromptUsed) return;
-    const modifier =
-      VARIATION_MODIFIERS[Math.floor(Math.random() * VARIATION_MODIFIERS.length)];
+    const modifier = VARIATION_MODIFIERS[Math.floor(Math.random() * VARIATION_MODIFIERS.length)];
     const variedPrompt = `${lastPromptUsed}, ${modifier}`;
-    await generateDesign(variedPrompt, lastStyleUsed, lastColorsUsed);
+    await generateDesign(variedPrompt, lastStyleUsed, lastColorsUsed, `V${versions.length + 1}`);
   }
+
+  async function handleRefine() {
+    if (!refinementInput.trim() || !lastPromptUsed) return;
+    const refinedPrompt = `${lastPromptUsed}, ${refinementInput.trim()}, maintaining the same composition`;
+    await generateDesign(refinedPrompt, lastStyleUsed, lastColorsUsed, `V${versions.length + 1}`);
+    setRefinementInput("");
+  }
+
+  /* ─── Save / Upload ─── */
 
   async function handleSaveComposite() {
     if (!currentDesign || !canvasRef.current) return;
     setError("");
     setSavingComposite(true);
-
     try {
       const imageData = canvasRef.current.toDataURL("image/png");
       const promptWithText = textOverlay.text.trim()
         ? `${currentDesign.prompt} [text: "${textOverlay.text.trim()}"]`
         : currentDesign.prompt;
-
       const res = await fetch("/api/save-composite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -446,22 +494,16 @@ export default function DesignStudioPage() {
           colors: currentDesign.colors,
         }),
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-
       setCurrentDesign(data.design);
       setDesigns((prev) => [data.design, ...prev]);
       setIsDesignSaved(true);
       setShowTextEditor(false);
       setTextOverlay(DEFAULT_TEXT_OVERLAY);
-
-      // Fetch new Printify mockups for the composite design
       fetchPrintifyMockups(data.design);
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Failed to save composite design";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Failed to save composite design");
     } finally {
       setSavingComposite(false);
     }
@@ -471,7 +513,6 @@ export default function DesignStudioPage() {
     if (!currentDesign || isDesignSaved) return;
     setError("");
     setSavingToGallery(true);
-
     try {
       const res = await fetch("/api/save-design", {
         method: "POST",
@@ -483,17 +524,13 @@ export default function DesignStudioPage() {
           colors: currentDesign.colors,
         }),
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-
       setCurrentDesign(data.design);
       setDesigns((prev) => [data.design, ...prev]);
       setIsDesignSaved(true);
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Failed to save design";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Failed to save design");
     } finally {
       setSavingToGallery(false);
     }
@@ -502,25 +539,17 @@ export default function DesignStudioPage() {
   async function handleUploadImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-
     setError("");
     setUploading(true);
     setCompositePreviewUrl(null);
     setPrintifyData(null);
     setMockupError("");
-
     try {
       const formData = new FormData();
       formData.append("file", file);
-
-      const res = await fetch("/api/upload-design", {
-        method: "POST",
-        body: formData,
-      });
-
+      const res = await fetch("/api/upload-design", { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-
       const tempDesign: Design = {
         id: `temp-${Date.now()}`,
         user_id: "",
@@ -530,549 +559,439 @@ export default function DesignStudioPage() {
         colors: null,
         created_at: new Date().toISOString(),
       };
-
       setCurrentDesign(tempDesign);
       setIsDesignSaved(false);
-
-      // Fetch Printify mockups in background
-      fetchPrintifyMockups(tempDesign);
+      setMode("canvas");
+      setVersions([{ imageUrl: data.imageUrl, prompt: tempDesign.prompt, label: "V1", style: null, colors: null }]);
+      setActiveVersionIndex(0);
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Failed to upload image";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Failed to upload image");
     } finally {
       setUploading(false);
-      // Reset file input so the same file can be selected again
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
-  // Determine which mockup image to show
+  /* ─── Derived state ─── */
+
   const printifyMockupForColor = printifyData?.mockups[selectedShirtColor.printifyName];
   const hasPrintifyMockup = !!printifyMockupForColor;
-
-  // The design image shown on the SVG fallback mockup
   const svgMockupImageUrl =
-    showTextEditor && compositePreviewUrl
-      ? compositePreviewUrl
-      : currentDesign?.image_url;
+    showTextEditor && compositePreviewUrl ? compositePreviewUrl : currentDesign?.image_url;
+  const sc = selectedShirtColor;
 
-  const sc = selectedShirtColor; // Shorthand for SVG usage
+  const previousVersion = activeVersionIndex > 0 ? versions[activeVersionIndex - 1] : null;
+  const currentVersion = versions[activeVersionIndex] || null;
+
+  /* ─── Render ─── */
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      {/* Hidden canvas for text compositing */}
+    <div className="max-w-7xl mx-auto px-4 py-6">
       <canvas ref={canvasRef} className="hidden" />
 
       {/* Header */}
-      <div className="text-center mb-10">
-        <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-primary">
-          AI Design Studio
-        </h1>
-        <p className="text-muted-foreground mt-2 max-w-lg mx-auto">
-          Describe your vision, pick a style and colors, and watch AI create
-          your next bestselling t-shirt design.
-        </p>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-primary flex items-center gap-2">
+            <PenTool className="w-6 h-6 text-accent" />
+            AI Design Studio
+          </h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Generate, refine, and preview your designs
+          </p>
+        </div>
+        {/* Mode toggle */}
+        {currentDesign && (
+          <div className="flex bg-surface-raised border border-border rounded-lg overflow-hidden">
+            <button
+              onClick={() => setMode("canvas")}
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
+                mode === "canvas"
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:text-primary"
+              }`}
+            >
+              <PenTool className="w-4 h-4" />
+              Canvas
+            </button>
+            <button
+              onClick={() => {
+                setMode("shirt");
+                if (currentDesign && !printifyData && !loadingMockups) {
+                  fetchPrintifyMockups(currentDesign);
+                }
+              }}
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
+                mode === "shirt"
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:text-primary"
+              }`}
+            >
+              <Shirt className="w-4 h-4" />
+              Preview on Shirt
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-        {/* Left column: Controls */}
-        <div>
-          <form onSubmit={handleGenerate} className="space-y-6">
-            {error && (
-              <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-lg border border-destructive/20">
-                {error}
-              </div>
-            )}
+      {error && (
+        <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-lg border border-destructive/20 mb-4">
+          {error}
+        </div>
+      )}
 
-            {/* Prompt */}
-            <div>
-              <label className="block text-sm font-semibold mb-2 text-primary">
-                Design Prompt
-              </label>
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="A cosmic cat riding a skateboard through a neon galaxy..."
-                rows={3}
-                maxLength={500}
-                disabled={generating}
-                className="w-full px-4 py-3 bg-surface-raised border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent text-primary placeholder:text-muted-foreground resize-none disabled:opacity-50"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                {prompt.length}/500 characters
-              </p>
-            </div>
-
-            {/* Style Presets */}
-            <div>
-              <label className="block text-sm font-semibold mb-2 text-primary">
-                Style Preset
-              </label>
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                {STYLE_PRESETS.map((style) => (
-                  <button
-                    key={style.id}
-                    type="button"
-                    disabled={generating}
-                    onClick={() =>
-                      setSelectedStyle(
-                        selectedStyle === style.id ? null : style.id
-                      )
-                    }
-                    className={`flex flex-col items-center gap-1 py-3 px-2 rounded-lg border text-xs font-medium transition-all disabled:opacity-50 ${
-                      selectedStyle === style.id
-                        ? "border-accent bg-accent/10 text-accent ring-1 ring-accent/30"
-                        : "border-border bg-surface hover:border-accent/40 text-muted-foreground hover:text-primary"
-                    }`}
-                  >
-                    <span className="text-base">{style.emoji}</span>
-                    {style.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Color Palette */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-semibold text-primary">
-                  Color Palette
-                </label>
-                <span className="text-xs text-muted-foreground">
-                  {selectedColors.length}/3 selected
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {COLOR_SWATCHES.map((color) => {
-                  const isSelected = selectedColors.includes(color.name);
-                  return (
-                    <button
-                      key={color.name}
-                      type="button"
-                      disabled={generating}
-                      onClick={() => toggleColor(color.name)}
-                      title={color.name}
-                      className={`relative w-8 h-8 rounded-full border-2 transition-all disabled:opacity-50 ${
-                        isSelected
-                          ? "border-primary scale-110 ring-2 ring-accent/30"
-                          : "border-border hover:scale-105"
-                      } ${
-                        !isSelected && selectedColors.length >= 3
-                          ? "opacity-40 cursor-not-allowed"
-                          : ""
-                      }`}
-                      style={{ backgroundColor: color.hex }}
-                    >
-                      {isSelected && (
-                        <Check
-                          className={`w-4 h-4 absolute inset-0 m-auto ${
-                            color.name === "Black"
-                              ? "text-white"
-                              : "text-primary-foreground"
-                          }`}
-                        />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-              {selectedColors.length > 0 && (
-                <div className="flex items-center gap-2 mt-2">
-                  <div className="flex gap-1">
-                    {selectedColors.map((name) => {
-                      const swatch = COLOR_SWATCHES.find(
-                        (c) => c.name === name
-                      );
-                      return (
-                        <span
-                          key={name}
-                          className="inline-flex items-center gap-1 text-xs bg-surface-raised px-2 py-1 rounded-full text-primary"
-                        >
-                          <span
-                            className="w-2.5 h-2.5 rounded-full border border-border"
-                            style={{
-                              backgroundColor: swatch?.hex,
-                            }}
-                          />
-                          {name}
-                          <button
-                            type="button"
-                            onClick={() => toggleColor(name)}
-                            className="ml-0.5 hover:text-destructive"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </span>
-                      );
-                    })}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedColors([])}
-                    className="text-xs text-muted-foreground hover:text-destructive"
-                  >
-                    Clear
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Generate + Upload Buttons */}
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                disabled={generating || uploading || !prompt.trim()}
-                className="flex-1 bg-accent text-accent-foreground py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {generating ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Sparkles className="w-4 h-4" />
-                )}
-                {generating ? "Generating..." : "Generate Design"}
-              </button>
-              <button
-                type="button"
-                disabled={generating || uploading}
-                onClick={() => fileInputRef.current?.click()}
-                className="px-4 py-3 border border-border rounded-lg font-medium hover:bg-surface-raised transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-primary text-sm"
-              >
-                {uploading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Upload className="w-4 h-4" />
-                )}
-                {uploading ? "Uploading..." : "Upload"}
-              </button>
-            </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleUploadImage}
-              className="hidden"
-            />
-          </form>
-
-          {/* Text Overlay Editor */}
-          {showTextEditor && currentDesign && (
-            <div className="mt-6 p-5 border border-accent/30 rounded-xl bg-surface-raised space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-primary flex items-center gap-2">
-                  <Type className="w-4 h-4 text-accent" />
-                  Text Overlay
-                </h3>
-                <button
-                  onClick={() => {
-                    setShowTextEditor(false);
-                    setTextOverlay(DEFAULT_TEXT_OVERLAY);
-                    setCompositePreviewUrl(null);
-                  }}
-                  className="text-muted-foreground hover:text-primary"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Text input */}
-              <div>
-                <label className="block text-xs font-medium mb-1 text-muted-foreground">
-                  Text
-                </label>
-                <input
-                  type="text"
-                  value={textOverlay.text}
-                  onChange={(e) =>
-                    setTextOverlay((prev) => ({
-                      ...prev,
-                      text: e.target.value.slice(0, 100),
-                    }))
-                  }
-                  placeholder="Enter text to add..."
-                  maxLength={100}
-                  className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-primary placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                />
-                <p className="text-xs text-muted-foreground mt-1 text-right">
-                  {textOverlay.text.length}/100
-                </p>
-              </div>
-
-              {/* Font selector + size */}
-              <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6">
+        {/* ═══════ Main area ═══════ */}
+        <div className="min-w-0">
+          {/* Generation form — shown when no design yet */}
+          {!currentDesign && !generating && (
+            <div className="space-y-6 max-w-2xl mx-auto">
+              <form onSubmit={handleGenerate} className="space-y-5">
                 <div>
-                  <label className="block text-xs font-medium mb-1 text-muted-foreground">
-                    Font
-                  </label>
-                  <select
-                    value={textOverlay.font}
-                    onChange={(e) =>
-                      setTextOverlay((prev) => ({
-                        ...prev,
-                        font: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent"
-                  >
-                    {FONT_OPTIONS.map((f) => (
-                      <option key={f.value} value={f.value}>
-                        {f.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1 text-muted-foreground">
-                    Size: {textOverlay.fontSize}px
-                  </label>
-                  <input
-                    type="range"
-                    min={20}
-                    max={200}
-                    value={textOverlay.fontSize}
-                    onChange={(e) =>
-                      setTextOverlay((prev) => ({
-                        ...prev,
-                        fontSize: Number(e.target.value),
-                      }))
-                    }
-                    className="w-full accent-accent mt-1"
+                  <label className="block text-sm font-semibold mb-2 text-primary">Design Prompt</label>
+                  <textarea
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="A cosmic cat riding a skateboard through a neon galaxy..."
+                    rows={3}
+                    maxLength={500}
+                    className="w-full px-4 py-3 bg-surface-raised border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent text-primary placeholder:text-muted-foreground resize-none"
                   />
+                  <p className="text-xs text-muted-foreground mt-1">{prompt.length}/500</p>
                 </div>
-              </div>
 
-              {/* Color picker + Bold/Italic */}
-              <div className="flex items-end gap-3">
-                <div className="flex-1">
-                  <label className="block text-xs font-medium mb-1 text-muted-foreground">
-                    Text Color
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={textOverlay.color}
-                      onChange={(e) =>
-                        setTextOverlay((prev) => ({
-                          ...prev,
-                          color: e.target.value,
-                        }))
-                      }
-                      className="w-10 h-10 rounded border border-border cursor-pointer bg-transparent"
-                    />
-                    <span className="text-xs text-muted-foreground font-mono">
-                      {textOverlay.color.toUpperCase()}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex gap-1">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setTextOverlay((prev) => ({ ...prev, bold: !prev.bold }))
-                    }
-                    className={`p-2 rounded-lg border text-sm transition-colors ${
-                      textOverlay.bold
-                        ? "border-accent bg-accent/10 text-accent"
-                        : "border-border text-muted-foreground hover:text-primary"
-                    }`}
-                  >
-                    <Bold className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setTextOverlay((prev) => ({
-                        ...prev,
-                        italic: !prev.italic,
-                      }))
-                    }
-                    className={`p-2 rounded-lg border text-sm transition-colors ${
-                      textOverlay.italic
-                        ? "border-accent bg-accent/10 text-accent"
-                        : "border-border text-muted-foreground hover:text-primary"
-                    }`}
-                  >
-                    <Italic className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Free Position X/Y */}
-              <div>
-                <label className="flex items-center gap-2 text-xs font-medium mb-1 text-muted-foreground">
-                  <Move className="w-3 h-3" />
-                  Position
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <div className="flex justify-between text-xs text-muted-foreground mb-0.5">
-                      <span>X</span>
-                      <span>{textOverlay.x}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={textOverlay.x}
-                      onChange={(e) =>
-                        setTextOverlay((prev) => ({
-                          ...prev,
-                          x: Number(e.target.value),
-                        }))
-                      }
-                      className="w-full accent-accent"
-                    />
-                  </div>
-                  <div>
-                    <div className="flex justify-between text-xs text-muted-foreground mb-0.5">
-                      <span>Y</span>
-                      <span>{textOverlay.y}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={textOverlay.y}
-                      onChange={(e) =>
-                        setTextOverlay((prev) => ({
-                          ...prev,
-                          y: Number(e.target.value),
-                        }))
-                      }
-                      className="w-full accent-accent"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Alignment + Outline */}
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className="block text-xs font-medium mb-1 text-muted-foreground">
-                    Alignment
-                  </label>
-                  <div className="flex gap-2">
-                    {(
-                      [
-                        { value: "left", icon: AlignLeft },
-                        { value: "center", icon: AlignCenter },
-                        { value: "right", icon: AlignRight },
-                      ] as const
-                    ).map(({ value, icon: Icon }) => (
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-primary">Style Preset</label>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                    {STYLE_PRESETS.map((style) => (
                       <button
-                        key={value}
+                        key={style.id}
                         type="button"
-                        onClick={() =>
-                          setTextOverlay((prev) => ({ ...prev, align: value }))
-                        }
-                        className={`flex-1 py-2 rounded-lg border flex items-center justify-center transition-colors ${
-                          textOverlay.align === value
-                            ? "border-accent bg-accent/10 text-accent"
-                            : "border-border text-muted-foreground hover:text-primary"
+                        onClick={() => setSelectedStyle(selectedStyle === style.id ? null : style.id)}
+                        className={`flex flex-col items-center gap-1 py-3 px-2 rounded-lg border text-xs font-medium transition-all ${
+                          selectedStyle === style.id
+                            ? "border-accent bg-accent/10 text-accent ring-1 ring-accent/30"
+                            : "border-border bg-surface hover:border-accent/40 text-muted-foreground hover:text-primary"
                         }`}
                       >
-                        <Icon className="w-4 h-4" />
+                        <span className="text-base">{style.emoji}</span>
+                        {style.label}
                       </button>
                     ))}
                   </div>
                 </div>
+
                 <div>
-                  <label className="block text-xs font-medium mb-1 text-muted-foreground">
-                    Outline
-                  </label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-semibold text-primary">Color Palette</label>
+                    <span className="text-xs text-muted-foreground">{selectedColors.length}/3</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {COLOR_SWATCHES.map((color) => {
+                      const isSelected = selectedColors.includes(color.name);
+                      return (
+                        <button
+                          key={color.name}
+                          type="button"
+                          onClick={() => toggleColor(color.name)}
+                          title={color.name}
+                          className={`relative w-8 h-8 rounded-full border-2 transition-all ${
+                            isSelected ? "border-primary scale-110 ring-2 ring-accent/30" : "border-border hover:scale-105"
+                          } ${!isSelected && selectedColors.length >= 3 ? "opacity-40 cursor-not-allowed" : ""}`}
+                          style={{ backgroundColor: color.hex }}
+                        >
+                          {isSelected && (
+                            <Check className={`w-4 h-4 absolute inset-0 m-auto ${color.name === "Black" ? "text-white" : "text-primary-foreground"}`} />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={!prompt.trim()}
+                    className="flex-1 bg-accent text-accent-foreground py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    Generate Design
+                  </button>
                   <button
                     type="button"
-                    onClick={() =>
-                      setTextOverlay((prev) => ({
-                        ...prev,
-                        outline: !prev.outline,
-                      }))
-                    }
-                    className={`w-full py-2 px-3 rounded-lg border text-xs font-medium transition-colors ${
-                      textOverlay.outline
-                        ? "border-accent bg-accent/10 text-accent"
-                        : "border-border text-muted-foreground hover:text-primary"
-                    }`}
+                    disabled={uploading}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-4 py-3 border border-border rounded-lg font-medium hover:bg-surface-raised transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-primary text-sm"
                   >
-                    {textOverlay.outline ? "ON" : "OFF"}
+                    {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    {uploading ? "Uploading..." : "Upload"}
                   </button>
                 </div>
-              </div>
+                <input ref={fileInputRef} type="file" accept="image/*" onChange={handleUploadImage} className="hidden" />
+              </form>
 
-              {/* Save button */}
-              <button
-                onClick={handleSaveComposite}
-                disabled={savingComposite || !textOverlay.text.trim()}
-                className="w-full bg-accent text-accent-foreground py-2.5 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
-              >
-                {savingComposite ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4" />
-                )}
-                {savingComposite
-                  ? "Saving..."
-                  : "Save Design with Text"}
-              </button>
-            </div>
-          )}
-
-          {/* Gallery */}
-          {designs.length > 0 && (
-            <div className="mt-10">
-              <h2 className="text-sm font-semibold mb-3 text-primary">Your Gallery</h2>
-              <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
-                {designs.map((design) => (
-                  <button
-                    key={design.id}
-                    onClick={() => {
-                      setCurrentDesign(design);
-                      setIsDesignSaved(true); // Gallery designs are already saved
-                      setLastPromptUsed(design.prompt);
-                      setShowTextEditor(false);
-                      setTextOverlay(DEFAULT_TEXT_OVERLAY);
-                      setCompositePreviewUrl(null);
-                      setPrintifyData(null);
-                      // Fetch Printify mockups for this gallery design
-                      fetchPrintifyMockups(design);
-                    }}
-                    className={`aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
-                      currentDesign?.id === design.id
-                        ? "border-accent ring-2 ring-accent/20"
-                        : "border-border hover:border-accent/50"
-                    }`}
-                  >
-                    <img
-                      src={design.image_url}
-                      alt={design.prompt}
-                      className="w-full h-full object-cover"
-                    />
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Right column: Preview */}
-        <div className="lg:sticky lg:top-24 lg:self-start">
-          {generating ? (
-            <div className="border border-border rounded-xl bg-surface aspect-square flex flex-col items-center justify-center gap-4">
-              <div className="relative">
-                <Loader2 className="w-10 h-10 animate-spin text-accent" />
-              </div>
-              <div className="text-center">
-                <p className="font-medium text-sm text-primary">Creating your design</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  This usually takes 10-20 seconds...
+              {/* Empty state placeholder */}
+              <div className="border border-dashed border-border rounded-xl bg-surface aspect-video flex flex-col items-center justify-center gap-3 text-center px-8">
+                <div className="w-14 h-14 rounded-full bg-accent/10 flex items-center justify-center">
+                  <Sparkles className="w-7 h-7 text-accent" />
+                </div>
+                <p className="font-medium text-sm text-primary">Your design preview</p>
+                <p className="text-xs text-muted-foreground">
+                  Enter a prompt, choose a style, and hit Generate to start designing.
                 </p>
               </div>
             </div>
-          ) : currentDesign ? (
-            <div>
-              {/* Shirt Color Selector */}
-              <div className="mb-3">
-                <label className="flex items-center gap-2 text-sm font-semibold mb-2 text-primary">
+          )}
+
+          {/* Loading state */}
+          {generating && (
+            <div className="border border-border rounded-xl bg-surface flex flex-col items-center justify-center gap-4 py-32">
+              <Loader2 className="w-10 h-10 animate-spin text-accent" />
+              <div className="text-center">
+                <p className="font-medium text-sm text-primary">
+                  {versions.length > 0 ? "Refining your design..." : "Creating your design"}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">This usually takes 10-20 seconds</p>
+              </div>
+            </div>
+          )}
+
+          {/* ═══ CANVAS MODE ═══ */}
+          {currentDesign && !generating && mode === "canvas" && (
+            <div className="space-y-4">
+              {/* Canvas toolbar */}
+              <div className="flex items-center justify-between bg-surface-raised border border-border rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2">
+                  {/* Zoom controls */}
+                  <button
+                    onClick={() => setZoom((z) => Math.max(50, z - 25))}
+                    className="p-1.5 rounded hover:bg-surface transition-colors text-muted-foreground hover:text-primary"
+                    title="Zoom out"
+                  >
+                    <ZoomOut className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs font-mono text-muted-foreground w-12 text-center">{zoom}%</span>
+                  <button
+                    onClick={() => setZoom((z) => Math.min(200, z + 25))}
+                    className="p-1.5 rounded hover:bg-surface transition-colors text-muted-foreground hover:text-primary"
+                    title="Zoom in"
+                  >
+                    <ZoomIn className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setZoom(100)}
+                    className="text-xs text-muted-foreground hover:text-primary px-2 py-1 rounded hover:bg-surface transition-colors"
+                  >
+                    Fit
+                  </button>
+                  <div className="w-px h-5 bg-border mx-1" />
+                  {/* Compare toggle */}
+                  {previousVersion && (
+                    <button
+                      onClick={() => setShowComparison((v) => !v)}
+                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+                        showComparison
+                          ? "bg-accent/10 text-accent border border-accent/30"
+                          : "text-muted-foreground hover:text-primary hover:bg-surface"
+                      }`}
+                    >
+                      <Columns2 className="w-3.5 h-3.5" />
+                      Compare
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Info className="w-3.5 h-3.5" />
+                  1024 x 1024px
+                </div>
+              </div>
+
+              {/* Canvas area */}
+              {showComparison && previousVersion ? (
+                /* Before/After comparison */
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium text-muted-foreground text-center">
+                      Before ({previousVersion.label})
+                    </div>
+                    <div className="border border-border rounded-xl overflow-hidden bg-[#f0f0f0] flex items-center justify-center" style={{ minHeight: 300 }}>
+                      <img
+                        src={previousVersion.imageUrl}
+                        alt="Previous version"
+                        className="max-w-full max-h-full object-contain"
+                        style={{ width: `${zoom * 0.5}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium text-accent text-center">
+                      After ({currentVersion?.label || "Current"})
+                    </div>
+                    <div className="border-2 border-accent/30 rounded-xl overflow-hidden bg-[#f0f0f0] flex items-center justify-center" style={{ minHeight: 300 }}>
+                      <img
+                        src={currentDesign.image_url}
+                        alt="Current version"
+                        className="max-w-full max-h-full object-contain"
+                        style={{ width: `${zoom * 0.5}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Single canvas view */
+                <div
+                  className="border border-border rounded-xl overflow-auto bg-[#f0f0f0] flex items-center justify-center relative"
+                  style={{ minHeight: 500 }}
+                >
+                  {/* Checkerboard pattern hint for transparency */}
+                  <img
+                    src={currentDesign.image_url}
+                    alt={currentDesign.prompt}
+                    className="transition-transform duration-200"
+                    style={{
+                      width: `${Math.min(zoom, 100)}%`,
+                      maxWidth: `${zoom}%`,
+                      imageRendering: zoom > 150 ? "pixelated" : "auto",
+                    }}
+                    draggable={false}
+                  />
+                </div>
+              )}
+
+              {/* Refinement bar */}
+              <div className="bg-surface-raised border border-border rounded-lg p-3">
+                {!showRefinement ? (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={() => setShowRefinement(true)}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+                    >
+                      <Wand2 className="w-4 h-4" />
+                      Refine Design
+                    </button>
+                    <button
+                      onClick={handleRegenerate}
+                      disabled={generating || !lastPromptUsed}
+                      className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-lg text-sm font-medium hover:bg-surface transition-colors disabled:opacity-50 text-primary"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      Regenerate
+                    </button>
+                    <button
+                      onClick={handleVariation}
+                      disabled={generating || !lastPromptUsed}
+                      className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-lg text-sm font-medium hover:bg-surface transition-colors disabled:opacity-50 text-primary"
+                    >
+                      <Shuffle className="w-4 h-4" />
+                      Variation
+                    </button>
+                    <div className="flex-1" />
+                    <button
+                      onClick={() => {
+                        setMode("shirt");
+                        if (!printifyData && !loadingMockups) fetchPrintifyMockups(currentDesign);
+                      }}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+                    >
+                      <Shirt className="w-4 h-4" />
+                      Preview on Shirt
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Wand2 className="w-4 h-4 text-accent flex-shrink-0" />
+                      <span className="text-sm font-medium text-primary">What would you like to change?</span>
+                      <button onClick={() => setShowRefinement(false)} className="ml-auto text-muted-foreground hover:text-primary">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={refinementInput}
+                        onChange={(e) => setRefinementInput(e.target.value)}
+                        placeholder="e.g. make it blue, add more contrast, remove background elements..."
+                        onKeyDown={(e) => { if (e.key === "Enter") handleRefine(); }}
+                        className="flex-1 px-3 py-2 bg-surface border border-border rounded-lg text-sm text-primary placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                      />
+                      <button
+                        onClick={handleRefine}
+                        disabled={!refinementInput.trim() || generating}
+                        className="px-4 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Tip: Be specific. &quot;Make the background dark blue&quot; works better than &quot;change colors&quot;.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Prompt info */}
+              <p className="text-xs text-muted-foreground truncate">
+                Prompt: &quot;{currentDesign.prompt}&quot;
+              </p>
+
+              {/* New design form (collapsed) */}
+              <details className="bg-surface-raised border border-border rounded-lg">
+                <summary className="px-4 py-3 text-sm font-medium text-primary cursor-pointer hover:text-accent flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" />
+                  Start a New Design
+                </summary>
+                <form onSubmit={handleGenerate} className="px-4 pb-4 space-y-3">
+                  <textarea
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="Describe your new design..."
+                    rows={2}
+                    maxLength={500}
+                    disabled={generating}
+                    className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-primary placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      disabled={generating || !prompt.trim()}
+                      className="flex-1 bg-accent text-accent-foreground py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      Generate
+                    </button>
+                    <button
+                      type="button"
+                      disabled={uploading}
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-3 py-2 border border-border rounded-lg text-sm hover:bg-surface transition-colors disabled:opacity-50 flex items-center gap-1.5 text-primary"
+                    >
+                      <Upload className="w-4 h-4" />
+                      Upload
+                    </button>
+                  </div>
+                  <input ref={fileInputRef} type="file" accept="image/*" onChange={handleUploadImage} className="hidden" />
+                </form>
+              </details>
+            </div>
+          )}
+
+          {/* ═══ SHIRT PREVIEW MODE ═══ */}
+          {currentDesign && !generating && mode === "shirt" && (
+            <div className="space-y-4">
+              {/* Back to canvas */}
+              <button
+                onClick={() => setMode("canvas")}
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Back to Canvas
+              </button>
+
+              {/* Shirt color selector */}
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-sm font-semibold text-primary">
                   <Palette className="w-4 h-4 text-accent" />
                   Shirt Color
                 </label>
@@ -1082,7 +1001,7 @@ export default function DesignStudioPage() {
                       key={color.name}
                       onClick={() => setSelectedShirtColor(color)}
                       title={color.name}
-                      className={`relative w-9 h-9 rounded-full border-2 transition-all ${
+                      className={`relative w-8 h-8 rounded-full border-2 transition-all ${
                         selectedShirtColor.name === color.name
                           ? "border-accent scale-110 ring-2 ring-accent/30"
                           : "border-border hover:scale-105"
@@ -1090,28 +1009,24 @@ export default function DesignStudioPage() {
                       style={{ backgroundColor: color.fill }}
                     >
                       {selectedShirtColor.name === color.name && (
-                        <Check
-                          className={`w-4 h-4 absolute inset-0 m-auto ${
-                            color.isLight ? "text-gray-700" : "text-white"
-                          }`}
-                        />
+                        <Check className={`w-3.5 h-3.5 absolute inset-0 m-auto ${color.isLight ? "text-gray-700" : "text-white"}`} />
                       )}
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">
+                <span className="text-xs text-muted-foreground">
                   {selectedShirtColor.name}
-                  {loadingMockups && " — generating mockup..."}
+                  {loadingMockups && " — loading..."}
                   {hasPrintifyMockup && (
                     <span className="inline-flex items-center gap-1 ml-1 text-accent">
                       <ImageIcon className="w-3 h-3" /> Printify
                     </span>
                   )}
-                </p>
+                </span>
               </div>
 
-              {/* Mockup Display */}
-              <div className="border border-border rounded-xl overflow-hidden bg-gradient-to-b from-[#e8e8ec] to-[#d1d1d8] relative aspect-square flex items-center justify-center">
+              {/* Mockup display */}
+              <div className="border border-border rounded-xl overflow-hidden bg-gradient-to-b from-[#e8e8ec] to-[#d1d1d8] relative flex items-center justify-center" style={{ minHeight: 500 }}>
                 {loadingMockups && (
                   <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-surface/80 backdrop-blur-sm px-2 py-1 rounded-full text-xs text-muted-foreground">
                     <Loader2 className="w-3 h-3 animate-spin" />
@@ -1120,19 +1035,14 @@ export default function DesignStudioPage() {
                 )}
 
                 {hasPrintifyMockup ? (
-                  /* Printify photorealistic mockup */
                   <img
                     src={printifyMockupForColor}
                     alt={`${selectedShirtColor.name} t-shirt mockup`}
-                    className="w-full h-full object-contain p-2"
+                    className="w-full h-full object-contain p-4"
+                    style={{ maxHeight: 600 }}
                   />
                 ) : (
-                  /* SVG fallback mockup */
-                  <svg
-                    viewBox="0 0 400 480"
-                    className="w-full h-full drop-shadow-lg p-4"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
+                  <svg viewBox="0 0 400 480" className="drop-shadow-lg p-4" style={{ maxHeight: 560, width: "auto" }} xmlns="http://www.w3.org/2000/svg">
                     <defs>
                       <filter id="fabric" x="-5%" y="-5%" width="110%" height="110%">
                         <feTurbulence type="fractalNoise" baseFrequency="1.2" numOctaves="6" seed="5" result="noise" />
@@ -1140,43 +1050,16 @@ export default function DesignStudioPage() {
                         <feBlend in="SourceGraphic" in2="gray" mode="multiply" result="tex" />
                         <feComposite in="tex" in2="SourceGraphic" operator="in" />
                       </filter>
-                      <linearGradient id="sleeve-l" x1="0" y1="0" x2="1" y2="0.3">
-                        <stop offset="0%" stopColor={sc.foldDark} />
-                        <stop offset="100%" stopColor="transparent" />
-                      </linearGradient>
-                      <linearGradient id="sleeve-r" x1="1" y1="0" x2="0" y2="0.3">
-                        <stop offset="0%" stopColor={sc.foldDark} />
-                        <stop offset="100%" stopColor="transparent" />
-                      </linearGradient>
-                      <linearGradient id="center-hl" x1="0" y1="0" x2="1" y2="0">
-                        <stop offset="0%" stopColor="transparent" />
-                        <stop offset="35%" stopColor={sc.foldLight} />
-                        <stop offset="65%" stopColor="transparent" />
-                      </linearGradient>
-                      <linearGradient id="body-v" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={sc.foldLight} />
-                        <stop offset="40%" stopColor="transparent" />
-                        <stop offset="100%" stopColor={sc.foldDark} />
-                      </linearGradient>
-                      <radialGradient id="chest-hl" cx="50%" cy="35%" r="35%">
-                        <stop offset="0%" stopColor={sc.foldLight} />
-                        <stop offset="100%" stopColor="transparent" />
-                      </radialGradient>
-                      <clipPath id="shirt-shape">
-                        <path d="M105,62 L62,82 L18,148 L72,168 L92,115 L88,420 L312,420 L308,115 L328,168 L382,148 L338,82 L295,62 L258,48 Q232,82 200,82 Q168,82 142,48 Z" />
-                      </clipPath>
-                      <clipPath id="print-area">
-                        <rect x="110" y="105" width="180" height="200" rx="4" />
-                      </clipPath>
+                      <linearGradient id="sleeve-l" x1="0" y1="0" x2="1" y2="0.3"><stop offset="0%" stopColor={sc.foldDark} /><stop offset="100%" stopColor="transparent" /></linearGradient>
+                      <linearGradient id="sleeve-r" x1="1" y1="0" x2="0" y2="0.3"><stop offset="0%" stopColor={sc.foldDark} /><stop offset="100%" stopColor="transparent" /></linearGradient>
+                      <linearGradient id="center-hl" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="transparent" /><stop offset="35%" stopColor={sc.foldLight} /><stop offset="65%" stopColor="transparent" /></linearGradient>
+                      <linearGradient id="body-v" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={sc.foldLight} /><stop offset="40%" stopColor="transparent" /><stop offset="100%" stopColor={sc.foldDark} /></linearGradient>
+                      <radialGradient id="chest-hl" cx="50%" cy="35%" r="35%"><stop offset="0%" stopColor={sc.foldLight} /><stop offset="100%" stopColor="transparent" /></radialGradient>
+                      <clipPath id="shirt-shape"><path d="M105,62 L62,82 L18,148 L72,168 L92,115 L88,420 L312,420 L308,115 L328,168 L382,148 L338,82 L295,62 L258,48 Q232,82 200,82 Q168,82 142,48 Z" /></clipPath>
+                      <clipPath id="print-area"><rect x="110" y="105" width="180" height="200" rx="4" /></clipPath>
                     </defs>
                     <ellipse cx="200" cy="448" rx="140" ry="12" fill="rgba(0,0,0,0.10)" />
-                    <path
-                      d="M105,62 L62,82 L18,148 L72,168 L92,115 L88,420 L312,420 L308,115 L328,168 L382,148 L338,82 L295,62 L258,48 Q232,82 200,82 Q168,82 142,48 Z"
-                      fill={sc.fill}
-                      stroke={sc.stroke}
-                      strokeWidth="1"
-                      filter="url(#fabric)"
-                    />
+                    <path d="M105,62 L62,82 L18,148 L72,168 L92,115 L88,420 L312,420 L308,115 L328,168 L382,148 L338,82 L295,62 L258,48 Q232,82 200,82 Q168,82 142,48 Z" fill={sc.fill} stroke={sc.stroke} strokeWidth="1" filter="url(#fabric)" />
                     <g clipPath="url(#shirt-shape)">
                       <rect x="85" y="60" width="230" height="365" fill="url(#body-v)" opacity="0.25" />
                       <rect x="85" y="60" width="230" height="365" fill="url(#chest-hl)" opacity="0.2" />
@@ -1195,143 +1078,197 @@ export default function DesignStudioPage() {
                     <path d="M147,52 Q170,74 200,74 Q230,74 253,52" fill="none" stroke={sc.foldDark} strokeWidth="1.5" opacity="0.4" />
                     <line x1="88" y1="115" x2="88" y2="420" stroke={sc.stroke} strokeWidth="0.4" opacity="0.3" />
                     <line x1="312" y1="115" x2="312" y2="420" stroke={sc.stroke} strokeWidth="0.4" opacity="0.3" />
-                    <image
-                      href={svgMockupImageUrl}
-                      x="110"
-                      y="105"
-                      width="180"
-                      height="200"
-                      preserveAspectRatio="xMidYMid meet"
-                      clipPath="url(#print-area)"
-                      opacity="0.9"
-                      style={{ mixBlendMode: "multiply" }}
-                    />
-                    <rect
-                      x="110"
-                      y="105"
-                      width="180"
-                      height="200"
-                      fill="url(#center-hl)"
-                      clipPath="url(#print-area)"
-                      opacity="0.08"
-                    />
+                    <image href={svgMockupImageUrl} x="110" y="105" width="180" height="200" preserveAspectRatio="xMidYMid meet" clipPath="url(#print-area)" opacity="0.9" style={{ mixBlendMode: "multiply" }} />
+                    <rect x="110" y="105" width="180" height="200" fill="url(#center-hl)" clipPath="url(#print-area)" opacity="0.08" />
                   </svg>
                 )}
               </div>
 
-              {/* Mockup status */}
               {mockupError && (
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-muted-foreground">
                   Printify unavailable — using preview mockup
                 </p>
               )}
 
-              {/* Actions row */}
-              <div className="flex gap-2 mt-4">
-                <button
-                  onClick={handleRegenerate}
-                  disabled={generating || !lastPromptUsed}
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 border border-border rounded-lg text-sm font-medium hover:bg-surface-raised transition-colors disabled:opacity-50 text-primary"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  Regenerate
-                </button>
-                <button
-                  onClick={handleVariation}
-                  disabled={generating || !lastPromptUsed}
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 border border-border rounded-lg text-sm font-medium hover:bg-surface-raised transition-colors disabled:opacity-50 text-primary"
-                >
-                  <Shuffle className="w-4 h-4" />
-                  Variation
-                </button>
-              </div>
-
-              {/* Add Text button */}
-              {!showTextEditor && (
-                <button
-                  onClick={() => setShowTextEditor(true)}
-                  className="w-full mt-2 flex items-center justify-center gap-2 py-2.5 border border-border rounded-lg text-sm font-medium hover:bg-surface-raised transition-colors text-primary"
-                >
-                  <Type className="w-4 h-4" />
-                  Add Text
-                </button>
+              {/* Text overlay editor (in shirt mode) */}
+              {showTextEditor && (
+                <div className="p-4 border border-accent/30 rounded-xl bg-surface-raised space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-primary flex items-center gap-2">
+                      <Type className="w-4 h-4 text-accent" />
+                      Text Overlay
+                    </h3>
+                    <button onClick={() => { setShowTextEditor(false); setTextOverlay(DEFAULT_TEXT_OVERLAY); setCompositePreviewUrl(null); }} className="text-muted-foreground hover:text-primary">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={textOverlay.text}
+                    onChange={(e) => setTextOverlay((prev) => ({ ...prev, text: e.target.value.slice(0, 100) }))}
+                    placeholder="Enter text to add..."
+                    maxLength={100}
+                    className="w-full px-3 py-2 bg-surface border border-border rounded-lg text-sm text-primary placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <select
+                      value={textOverlay.font}
+                      onChange={(e) => setTextOverlay((prev) => ({ ...prev, font: e.target.value }))}
+                      className="px-3 py-2 bg-surface border border-border rounded-lg text-sm text-primary focus:outline-none focus:ring-2 focus:ring-accent"
+                    >
+                      {FONT_OPTIONS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+                    </select>
+                    <div>
+                      <span className="text-xs text-muted-foreground">Size: {textOverlay.fontSize}px</span>
+                      <input type="range" min={20} max={200} value={textOverlay.fontSize} onChange={(e) => setTextOverlay((prev) => ({ ...prev, fontSize: Number(e.target.value) }))} className="w-full accent-accent" />
+                    </div>
+                  </div>
+                  <div className="flex items-end gap-3">
+                    <div className="flex items-center gap-2">
+                      <input type="color" value={textOverlay.color} onChange={(e) => setTextOverlay((prev) => ({ ...prev, color: e.target.value }))} className="w-8 h-8 rounded border border-border cursor-pointer bg-transparent" />
+                      <span className="text-xs text-muted-foreground font-mono">{textOverlay.color.toUpperCase()}</span>
+                    </div>
+                    <button type="button" onClick={() => setTextOverlay((prev) => ({ ...prev, bold: !prev.bold }))} className={`p-2 rounded-lg border text-sm transition-colors ${textOverlay.bold ? "border-accent bg-accent/10 text-accent" : "border-border text-muted-foreground"}`}><Bold className="w-4 h-4" /></button>
+                    <button type="button" onClick={() => setTextOverlay((prev) => ({ ...prev, italic: !prev.italic }))} className={`p-2 rounded-lg border text-sm transition-colors ${textOverlay.italic ? "border-accent bg-accent/10 text-accent" : "border-border text-muted-foreground"}`}><Italic className="w-4 h-4" /></button>
+                    <button type="button" onClick={() => setTextOverlay((prev) => ({ ...prev, outline: !prev.outline }))} className={`px-2 py-2 rounded-lg border text-xs font-medium transition-colors ${textOverlay.outline ? "border-accent bg-accent/10 text-accent" : "border-border text-muted-foreground"}`}>{textOverlay.outline ? "Outline ON" : "Outline OFF"}</button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="flex justify-between text-xs text-muted-foreground mb-0.5"><span>X</span><span>{textOverlay.x}%</span></div>
+                      <input type="range" min={0} max={100} value={textOverlay.x} onChange={(e) => setTextOverlay((prev) => ({ ...prev, x: Number(e.target.value) }))} className="w-full accent-accent" />
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-xs text-muted-foreground mb-0.5"><span>Y</span><span>{textOverlay.y}%</span></div>
+                      <input type="range" min={0} max={100} value={textOverlay.y} onChange={(e) => setTextOverlay((prev) => ({ ...prev, y: Number(e.target.value) }))} className="w-full accent-accent" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {([{ value: "left", icon: AlignLeft }, { value: "center", icon: AlignCenter }, { value: "right", icon: AlignRight }] as const).map(({ value, icon: Icon }) => (
+                      <button key={value} type="button" onClick={() => setTextOverlay((prev) => ({ ...prev, align: value }))} className={`flex-1 py-2 rounded-lg border flex items-center justify-center transition-colors ${textOverlay.align === value ? "border-accent bg-accent/10 text-accent" : "border-border text-muted-foreground"}`}><Icon className="w-4 h-4" /></button>
+                    ))}
+                  </div>
+                  <button onClick={handleSaveComposite} disabled={savingComposite || !textOverlay.text.trim()} className="w-full bg-accent text-accent-foreground py-2.5 rounded-lg font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                    {savingComposite ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    {savingComposite ? "Saving..." : "Save Design with Text"}
+                  </button>
+                </div>
               )}
 
-              {/* Save to Gallery */}
-              {!isDesignSaved && (
-                <button
-                  onClick={handleSaveToGallery}
-                  disabled={savingToGallery}
-                  className="w-full mt-2 bg-green-600 text-white py-2.5 rounded-lg font-medium hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
-                >
-                  {savingToGallery ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Save className="w-4 h-4" />
-                  )}
-                  {savingToGallery ? "Saving..." : "Save to Gallery"}
-                </button>
-              )}
-              {isDesignSaved && (
-                <p className="mt-2 text-xs text-green-600 text-center flex items-center justify-center gap-1">
-                  <Check className="w-3 h-3" />
-                  Saved to gallery
-                </p>
-              )}
-
-              {/* Publish / Download */}
-              <div className="flex gap-2 mt-2">
+              {/* Actions */}
+              <div className="flex flex-wrap gap-2">
+                {!showTextEditor && (
+                  <button onClick={() => setShowTextEditor(true)} className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-lg text-sm font-medium hover:bg-surface-raised transition-colors text-primary">
+                    <Type className="w-4 h-4" />
+                    Add Text
+                  </button>
+                )}
+                {!isDesignSaved && (
+                  <button onClick={handleSaveToGallery} disabled={savingToGallery} className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors">
+                    {savingToGallery ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    {savingToGallery ? "Saving..." : "Save to Gallery"}
+                  </button>
+                )}
+                {isDesignSaved && (
+                  <span className="flex items-center gap-1 px-3 py-2 text-xs text-green-600"><Check className="w-3 h-3" /> Saved</span>
+                )}
                 {hasShop && isDesignSaved ? (
-                  <Link
-                    href={`/product/new?design=${currentDesign.id}${printifyData ? `&printifyProduct=${printifyData.printifyProductId}` : ""}`}
-                    className="flex-1 bg-accent text-accent-foreground py-2.5 rounded-lg font-medium hover:opacity-90 flex items-center justify-center gap-2 text-sm"
-                  >
+                  <Link href={`/product/new?design=${currentDesign.id}${printifyData ? `&printifyProduct=${printifyData.printifyProductId}` : ""}`} className="flex items-center gap-1.5 px-3 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-medium hover:opacity-90">
                     <ShoppingBag className="w-4 h-4" />
                     Publish to Shop
                   </Link>
                 ) : hasShop && !isDesignSaved ? (
-                  <button
-                    disabled
-                    className="flex-1 bg-accent/50 text-accent-foreground py-2.5 rounded-lg font-medium flex items-center justify-center gap-2 text-sm opacity-50 cursor-not-allowed"
-                  >
+                  <button disabled className="flex items-center gap-1.5 px-3 py-2 bg-accent/50 text-accent-foreground rounded-lg text-sm opacity-50 cursor-not-allowed">
                     <ShoppingBag className="w-4 h-4" />
                     Save first to publish
                   </button>
                 ) : (
-                  <Link
-                    href="/shop/new"
-                    className="flex-1 bg-accent text-accent-foreground py-2.5 rounded-lg font-medium hover:opacity-90 flex items-center justify-center gap-2 text-sm"
-                  >
+                  <Link href="/shop/new" className="flex items-center gap-1.5 px-3 py-2 bg-accent text-accent-foreground rounded-lg text-sm font-medium hover:opacity-90">
                     <ShoppingBag className="w-4 h-4" />
-                    Open a Shop to Sell
+                    Open a Shop
                   </Link>
                 )}
-                <a
-                  href={currentDesign.image_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-2.5 border border-border rounded-lg hover:bg-surface-raised flex items-center gap-2 text-sm text-primary"
-                >
+                <a href={currentDesign.image_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-3 py-2 border border-border rounded-lg text-sm text-primary hover:bg-surface-raised">
                   <Download className="w-4 h-4" />
                 </a>
               </div>
-
-              {/* Prompt info */}
-              <p className="text-xs text-muted-foreground mt-3 truncate">
-                Prompt: &quot;{currentDesign.prompt}&quot;
-              </p>
             </div>
-          ) : (
-            <div className="border border-dashed border-border rounded-xl bg-surface aspect-square flex flex-col items-center justify-center gap-3 text-center px-8">
-              <div className="w-14 h-14 rounded-full bg-accent/10 flex items-center justify-center">
-                <Sparkles className="w-7 h-7 text-accent" />
+          )}
+        </div>
+
+        {/* ═══════ Right sidebar ═══════ */}
+        <div className="space-y-4 lg:border-l lg:border-border lg:pl-6">
+          {/* Version History */}
+          {versions.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-primary flex items-center gap-2 mb-3">
+                <History className="w-4 h-4 text-accent" />
+                Version History
+              </h3>
+              <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                {versions.map((v, i) => (
+                  <button
+                    key={`${v.label}-${i}`}
+                    onClick={() => restoreVersion(i)}
+                    className={`w-full flex items-center gap-3 p-2 rounded-lg border transition-colors text-left ${
+                      i === activeVersionIndex
+                        ? "border-accent bg-accent/10 ring-1 ring-accent/20"
+                        : "border-border hover:border-accent/40 bg-surface"
+                    }`}
+                  >
+                    <img
+                      src={v.imageUrl}
+                      alt={v.label}
+                      className="w-14 h-14 rounded-md object-cover border border-border flex-shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-xs font-bold ${i === activeVersionIndex ? "text-accent" : "text-muted-foreground"}`}>
+                          {v.label}
+                        </span>
+                        {i === activeVersionIndex && (
+                          <span className="text-[10px] bg-accent text-accent-foreground px-1.5 py-0.5 rounded-full font-medium">
+                            Current
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">{v.prompt}</p>
+                    </div>
+                  </button>
+                ))}
               </div>
-              <div>
-                <p className="font-medium text-sm text-primary">Your design preview</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Enter a prompt, choose a style, and hit Generate to see your
-                  design on a t-shirt mockup.
-                </p>
+            </div>
+          )}
+
+          {/* Gallery */}
+          {designs.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-primary mb-3">Your Gallery</h3>
+              <div className="grid grid-cols-3 gap-2">
+                {designs.map((design) => (
+                  <button
+                    key={design.id}
+                    onClick={() => {
+                      setCurrentDesign(design);
+                      setIsDesignSaved(true);
+                      setLastPromptUsed(design.prompt);
+                      setShowTextEditor(false);
+                      setTextOverlay(DEFAULT_TEXT_OVERLAY);
+                      setCompositePreviewUrl(null);
+                      setPrintifyData(null);
+                      setMode("canvas");
+                      setVersions([{ imageUrl: design.image_url, prompt: design.prompt, label: "V1", style: design.style, colors: design.colors }]);
+                      setActiveVersionIndex(0);
+                      setShowComparison(false);
+                    }}
+                    className={`aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
+                      currentDesign?.id === design.id
+                        ? "border-accent ring-2 ring-accent/20"
+                        : "border-border hover:border-accent/50"
+                    }`}
+                  >
+                    <img src={design.image_url} alt={design.prompt} className="w-full h-full object-cover" />
+                  </button>
+                ))}
               </div>
             </div>
           )}
