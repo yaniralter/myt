@@ -205,6 +205,9 @@ export default function DesignStudioPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
+  /* Mockup cache: avoids re-creating Printify products for the same image */
+  const mockupCacheRef = useRef<Record<string, PrintifyMockupData>>({});
+
   /* ─── Effects ─── */
 
   useEffect(() => {
@@ -359,6 +362,14 @@ export default function DesignStudioPage() {
   /* ─── Printify ─── */
 
   async function fetchPrintifyMockups(design: Design) {
+    // Check cache first — avoid re-creating products for the same image
+    const cached = mockupCacheRef.current[design.image_url];
+    if (cached) {
+      console.log("[Printify] Using cached mockup data for:", design.image_url.slice(0, 60));
+      setPrintifyData(cached);
+      return;
+    }
+
     setLoadingMockups(true);
     setMockupError("");
     try {
@@ -376,11 +387,14 @@ export default function DesignStudioPage() {
         throw new Error(data.error || "Mockup generation failed");
       }
       const data = await res.json();
-      setPrintifyData({
+      const mockupData: PrintifyMockupData = {
         printifyProductId: data.printifyProductId,
         mockups: data.mockups,
         defaultMockup: data.defaultMockup,
-      });
+      };
+      // Cache for future use
+      mockupCacheRef.current[design.image_url] = mockupData;
+      setPrintifyData(mockupData);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Mockup generation failed";
       setMockupError(message);
@@ -1040,117 +1054,210 @@ export default function DesignStudioPage() {
                       style={{ maxHeight: 600 }}
                     />
                     {/* CSS Text overlay on Printify mockup */}
-                    {textOverlay.text.trim() && (
-                      <div
-                        className="absolute pointer-events-none"
-                        style={{
-                          left: `${25 + (textOverlay.x / 100) * 50}%`,
-                          top: `${20 + (textOverlay.y / 100) * 45}%`,
-                          transform: "translate(-50%, -50%)",
-                          fontFamily: textOverlay.font,
-                          fontSize: `${textOverlay.fontSize * 0.35}px`,
-                          fontWeight: textOverlay.bold ? "bold" : "normal",
-                          fontStyle: textOverlay.italic ? "italic" : "normal",
-                          color: textOverlay.color,
-                          textAlign: textOverlay.align,
-                          whiteSpace: "nowrap",
-                          textShadow: textOverlay.outline
-                            ? `
-                              -1px -1px 0 ${parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000"},
-                               1px -1px 0 ${parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000"},
-                              -1px  1px 0 ${parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000"},
-                               1px  1px 0 ${parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000"}
-                            `
-                            : "1px 1px 3px rgba(0,0,0,0.4)",
-                          maxWidth: "50%",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
-                        {textOverlay.text}
-                      </div>
-                    )}
+                    {textOverlay.text.trim() && (() => {
+                      const outlineColor = parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000";
+                      return (
+                        <div
+                          className="absolute pointer-events-none"
+                          style={{
+                            left: `${25 + (textOverlay.x / 100) * 50}%`,
+                            top: `${20 + (textOverlay.y / 100) * 45}%`,
+                            transform: "translate(-50%, -50%)",
+                            fontFamily: textOverlay.font,
+                            fontSize: `${textOverlay.fontSize * 0.35}px`,
+                            fontWeight: textOverlay.bold ? "bold" : "normal",
+                            fontStyle: textOverlay.italic ? "italic" : "normal",
+                            color: textOverlay.color,
+                            textAlign: textOverlay.align,
+                            whiteSpace: "nowrap",
+                            textShadow: textOverlay.outline
+                              ? `-1px -1px 0 ${outlineColor}, 1px -1px 0 ${outlineColor}, -1px 1px 0 ${outlineColor}, 1px 1px 0 ${outlineColor}`
+                              : "1px 1px 3px rgba(0,0,0,0.4)",
+                            maxWidth: "50%",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {textOverlay.text}
+                        </div>
+                      );
+                    })()}
                   </div>
                 ) : (
                   <div className="relative flex items-center justify-center">
-                    <svg viewBox="0 0 400 480" className="drop-shadow-lg p-4" style={{ maxHeight: 560, width: "auto" }} xmlns="http://www.w3.org/2000/svg">
+                    <svg viewBox="0 0 500 600" className="drop-shadow-xl" style={{ maxHeight: 580, width: "auto", padding: "12px" }} xmlns="http://www.w3.org/2000/svg">
                       <defs>
-                        <filter id="fabric" x="-5%" y="-5%" width="110%" height="110%">
-                          <feTurbulence type="fractalNoise" baseFrequency="1.2" numOctaves="6" seed="5" result="noise" />
-                          <feColorMatrix type="saturate" values="0" in="noise" result="gray" />
-                          <feBlend in="SourceGraphic" in2="gray" mode="multiply" result="tex" />
+                        {/* Fine cotton fabric texture */}
+                        <filter id="fabric-tex" x="-5%" y="-5%" width="110%" height="110%">
+                          <feTurbulence type="fractalNoise" baseFrequency="1.8" numOctaves="8" seed="3" result="fine" />
+                          <feColorMatrix type="saturate" values="0" in="fine" result="gray" />
+                          <feComponentTransfer in="gray" result="softgray">
+                            <feFuncA type="linear" slope="0.15" />
+                          </feComponentTransfer>
+                          <feBlend in="SourceGraphic" in2="softgray" mode="multiply" result="tex" />
                           <feComposite in="tex" in2="SourceGraphic" operator="in" />
                         </filter>
-                        <linearGradient id="sleeve-l" x1="0" y1="0" x2="1" y2="0.3"><stop offset="0%" stopColor={sc.foldDark} /><stop offset="100%" stopColor="transparent" /></linearGradient>
-                        <linearGradient id="sleeve-r" x1="1" y1="0" x2="0" y2="0.3"><stop offset="0%" stopColor={sc.foldDark} /><stop offset="100%" stopColor="transparent" /></linearGradient>
-                        <linearGradient id="center-hl" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stopColor="transparent" /><stop offset="35%" stopColor={sc.foldLight} /><stop offset="65%" stopColor="transparent" /></linearGradient>
-                        <linearGradient id="body-v" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={sc.foldLight} /><stop offset="40%" stopColor="transparent" /><stop offset="100%" stopColor={sc.foldDark} /></linearGradient>
-                        <radialGradient id="chest-hl" cx="50%" cy="35%" r="35%"><stop offset="0%" stopColor={sc.foldLight} /><stop offset="100%" stopColor="transparent" /></radialGradient>
-                        <clipPath id="shirt-shape"><path d="M105,62 L62,82 L18,148 L72,168 L92,115 L88,420 L312,420 L308,115 L328,168 L382,148 L338,82 L295,62 L258,48 Q232,82 200,82 Q168,82 142,48 Z" /></clipPath>
-                        <clipPath id="print-area"><rect x="110" y="105" width="180" height="200" rx="4" /></clipPath>
+                        {/* Subtle drop shadow for depth */}
+                        <filter id="shirt-shadow" x="-10%" y="-5%" width="120%" height="115%">
+                          <feDropShadow dx="3" dy="6" stdDeviation="8" floodColor="rgba(0,0,0,0.18)" />
+                        </filter>
+                        {/* Gradients for 3D shading */}
+                        <linearGradient id="body-shade" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={sc.foldLight} stopOpacity="0.35" />
+                          <stop offset="30%" stopColor="transparent" stopOpacity="0" />
+                          <stop offset="85%" stopColor={sc.foldDark} stopOpacity="0.2" />
+                          <stop offset="100%" stopColor={sc.foldDark} stopOpacity="0.35" />
+                        </linearGradient>
+                        <linearGradient id="body-lr" x1="0" y1="0" x2="1" y2="0">
+                          <stop offset="0%" stopColor={sc.foldDark} stopOpacity="0.15" />
+                          <stop offset="15%" stopColor="transparent" stopOpacity="0" />
+                          <stop offset="40%" stopColor={sc.foldLight} stopOpacity="0.12" />
+                          <stop offset="60%" stopColor={sc.foldLight} stopOpacity="0.08" />
+                          <stop offset="85%" stopColor="transparent" stopOpacity="0" />
+                          <stop offset="100%" stopColor={sc.foldDark} stopOpacity="0.15" />
+                        </linearGradient>
+                        <radialGradient id="chest-hl" cx="50%" cy="32%" r="30%">
+                          <stop offset="0%" stopColor={sc.foldLight} stopOpacity="0.25" />
+                          <stop offset="100%" stopColor="transparent" stopOpacity="0" />
+                        </radialGradient>
+                        <linearGradient id="sleeve-l-shade" x1="0" y1="0.2" x2="1" y2="0.5">
+                          <stop offset="0%" stopColor={sc.foldDark} stopOpacity="0.35" />
+                          <stop offset="40%" stopColor={sc.foldDark} stopOpacity="0.08" />
+                          <stop offset="100%" stopColor={sc.foldLight} stopOpacity="0.1" />
+                        </linearGradient>
+                        <linearGradient id="sleeve-r-shade" x1="1" y1="0.2" x2="0" y2="0.5">
+                          <stop offset="0%" stopColor={sc.foldDark} stopOpacity="0.35" />
+                          <stop offset="40%" stopColor={sc.foldDark} stopOpacity="0.08" />
+                          <stop offset="100%" stopColor={sc.foldLight} stopOpacity="0.1" />
+                        </linearGradient>
+                        <linearGradient id="collar-depth" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={sc.foldDark} stopOpacity="0.4" />
+                          <stop offset="100%" stopColor="transparent" stopOpacity="0" />
+                        </linearGradient>
+                        {/* Shirt body path */}
+                        <clipPath id="shirt-clip">
+                          <path d="M128,72 L75,95 L22,175 L85,198 L110,138 Q112,125 108,530 L392,530 Q388,125 390,138 L415,198 L478,175 L425,95 L372,72 L328,55 Q295,95 250,95 Q205,95 172,55 Z" />
+                        </clipPath>
+                        <clipPath id="design-area">
+                          <rect x="138" y="130" width="224" height="250" rx="6" />
+                        </clipPath>
                       </defs>
-                      <ellipse cx="200" cy="448" rx="140" ry="12" fill="rgba(0,0,0,0.10)" />
-                      <path d="M105,62 L62,82 L18,148 L72,168 L92,115 L88,420 L312,420 L308,115 L328,168 L382,148 L338,82 L295,62 L258,48 Q232,82 200,82 Q168,82 142,48 Z" fill={sc.fill} stroke={sc.stroke} strokeWidth="1" filter="url(#fabric)" />
-                      <g clipPath="url(#shirt-shape)">
-                        <rect x="85" y="60" width="230" height="365" fill="url(#body-v)" opacity="0.25" />
-                        <rect x="85" y="60" width="230" height="365" fill="url(#chest-hl)" opacity="0.2" />
-                        <rect x="85" y="100" width="70" height="320" fill="url(#sleeve-l)" opacity="0.4" />
-                        <rect x="245" y="100" width="70" height="320" fill="url(#sleeve-r)" opacity="0.4" />
-                        <rect x="175" y="80" width="50" height="340" fill="url(#center-hl)" opacity="0.3" />
-                        <path d="M62,82 L92,115 L87,175 L52,125 Z" fill={sc.foldDark} opacity="0.25" />
-                        <path d="M338,82 L308,115 L313,175 L348,125 Z" fill={sc.foldDark} opacity="0.25" />
-                        <path d="M110,185 Q200,190 290,183" fill="none" stroke={sc.foldDark} strokeWidth="0.6" opacity="0.2" />
-                        <path d="M115,250 Q195,256 285,248" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.18" />
-                        <path d="M108,320 Q200,326 292,318" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.15" />
-                        <path d="M95,120 Q130,170 145,230" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.15" />
-                        <path d="M305,120 Q270,170 255,230" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.15" />
+
+                      {/* Ground shadow */}
+                      <ellipse cx="250" cy="558" rx="170" ry="14" fill="rgba(0,0,0,0.08)" />
+
+                      {/* Main shirt body */}
+                      <path
+                        d="M128,72 L75,95 L22,175 L85,198 L110,138 Q112,125 108,530 L392,530 Q388,125 390,138 L415,198 L478,175 L425,95 L372,72 L328,55 Q295,95 250,95 Q205,95 172,55 Z"
+                        fill={sc.fill} stroke={sc.stroke} strokeWidth="1"
+                        filter="url(#shirt-shadow)"
+                      />
+                      {/* Fabric texture overlay */}
+                      <path
+                        d="M128,72 L75,95 L22,175 L85,198 L110,138 Q112,125 108,530 L392,530 Q388,125 390,138 L415,198 L478,175 L425,95 L372,72 L328,55 Q295,95 250,95 Q205,95 172,55 Z"
+                        fill={sc.fill} filter="url(#fabric-tex)"
+                      />
+
+                      {/* 3D shading layers (clipped to shirt) */}
+                      <g clipPath="url(#shirt-clip)">
+                        {/* Vertical body shading */}
+                        <rect x="20" y="50" width="460" height="490" fill="url(#body-shade)" />
+                        {/* Left-right body shading */}
+                        <rect x="20" y="50" width="460" height="490" fill="url(#body-lr)" />
+                        {/* Chest highlight */}
+                        <rect x="100" y="80" width="300" height="350" fill="url(#chest-hl)" />
+
+                        {/* Left sleeve shading */}
+                        <path d="M22,175 L85,198 L110,138 L75,95 Z" fill="url(#sleeve-l-shade)" />
+                        {/* Right sleeve shading */}
+                        <path d="M478,175 L415,198 L390,138 L425,95 Z" fill="url(#sleeve-r-shade)" />
+
+                        {/* Shoulder seam - left */}
+                        <path d="M128,72 L110,138" fill="none" stroke={sc.foldDark} strokeWidth="1" opacity="0.2" strokeDasharray="3,2" />
+                        {/* Shoulder seam - right */}
+                        <path d="M372,72 L390,138" fill="none" stroke={sc.foldDark} strokeWidth="1" opacity="0.2" strokeDasharray="3,2" />
+
+                        {/* Side seam left */}
+                        <line x1="108" y1="140" x2="108" y2="530" stroke={sc.foldDark} strokeWidth="0.6" opacity="0.15" />
+                        {/* Side seam right */}
+                        <line x1="392" y1="140" x2="392" y2="530" stroke={sc.foldDark} strokeWidth="0.6" opacity="0.15" />
+
+                        {/* Natural wrinkle lines */}
+                        <path d="M130,220 Q250,228 370,218" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.12" />
+                        <path d="M125,290 Q240,298 375,288" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.1" />
+                        <path d="M120,370 Q250,378 380,368" fill="none" stroke={sc.foldDark} strokeWidth="0.4" opacity="0.08" />
+                        <path d="M118,440 Q245,448 382,438" fill="none" stroke={sc.foldDark} strokeWidth="0.4" opacity="0.07" />
+
+                        {/* Vertical center fold hint */}
+                        <line x1="250" y1="95" x2="250" y2="530" stroke={sc.foldLight} strokeWidth="1.5" opacity="0.08" />
+
+                        {/* Armpit fold shadows */}
+                        <path d="M85,198 Q100,180 110,140" fill="none" stroke={sc.foldDark} strokeWidth="1.2" opacity="0.15" />
+                        <path d="M415,198 Q400,180 390,140" fill="none" stroke={sc.foldDark} strokeWidth="1.2" opacity="0.15" />
+
+                        {/* Sleeve hem stitching */}
+                        <path d="M22,173 Q54,185 85,196" fill="none" stroke={sc.foldDark} strokeWidth="0.8" opacity="0.2" />
+                        <path d="M478,173 Q446,185 415,196" fill="none" stroke={sc.foldDark} strokeWidth="0.8" opacity="0.2" />
+
+                        {/* Bottom hem */}
+                        <path d="M108,526 L392,526" fill="none" stroke={sc.foldDark} strokeWidth="1" opacity="0.15" />
+                        <path d="M108,530 L392,530" fill="none" stroke={sc.foldDark} strokeWidth="0.5" opacity="0.1" />
                       </g>
-                      <path d="M142,48 Q168,80 200,80 Q232,80 258,48" fill="none" stroke={sc.stroke} strokeWidth="2" />
-                      <path d="M147,52 Q170,74 200,74 Q230,74 253,52" fill="none" stroke={sc.foldDark} strokeWidth="1.5" opacity="0.4" />
-                      <line x1="88" y1="115" x2="88" y2="420" stroke={sc.stroke} strokeWidth="0.4" opacity="0.3" />
-                      <line x1="312" y1="115" x2="312" y2="420" stroke={sc.stroke} strokeWidth="0.4" opacity="0.3" />
-                      <image href={svgMockupImageUrl} x="110" y="105" width="180" height="200" preserveAspectRatio="xMidYMid meet" clipPath="url(#print-area)" opacity="0.9" style={{ mixBlendMode: "multiply" }} />
-                      <rect x="110" y="105" width="180" height="200" fill="url(#center-hl)" clipPath="url(#print-area)" opacity="0.08" />
+
+                      {/* Collar - outer ring */}
+                      <path d="M172,55 Q205,92 250,92 Q295,92 328,55" fill="none" stroke={sc.stroke} strokeWidth="2.5" strokeLinecap="round" />
+                      {/* Collar - inner neckline */}
+                      <path d="M178,60 Q208,85 250,85 Q292,85 322,60" fill="none" stroke={sc.foldDark} strokeWidth="1.8" opacity="0.35" strokeLinecap="round" />
+                      {/* Collar - ribbing texture (tiny dashes) */}
+                      <path d="M175,57 Q207,88 250,88 Q293,88 325,57" fill="none" stroke={sc.foldDark} strokeWidth="0.6" opacity="0.15" strokeDasharray="1.5,1.5" />
+                      {/* Collar shadow depth */}
+                      <path d="M180,63 Q210,82 250,82 Q290,82 320,63" fill="url(#collar-depth)" opacity="0.3" />
+
+                      {/* Design print area */}
+                      <image href={svgMockupImageUrl} x="138" y="130" width="224" height="250" preserveAspectRatio="xMidYMid meet" clipPath="url(#design-area)" opacity="0.92" style={{ mixBlendMode: "multiply" }} />
+                      {/* Print area subtle overlay for realism */}
+                      <rect x="138" y="130" width="224" height="250" fill="url(#body-lr)" clipPath="url(#design-area)" opacity="0.06" />
                     </svg>
-                    {/* CSS Text overlay on SVG mockup */}
-                    {textOverlay.text.trim() && (
-                      <div
-                        className="absolute pointer-events-none"
-                        style={{
-                          left: `${27.5 + (textOverlay.x / 100) * 45}%`,
-                          top: `${22 + (textOverlay.y / 100) * 42}%`,
-                          transform: "translate(-50%, -50%)",
-                          fontFamily: textOverlay.font,
-                          fontSize: `${textOverlay.fontSize * 0.3}px`,
-                          fontWeight: textOverlay.bold ? "bold" : "normal",
-                          fontStyle: textOverlay.italic ? "italic" : "normal",
-                          color: textOverlay.color,
-                          textAlign: textOverlay.align,
-                          whiteSpace: "nowrap",
-                          textShadow: textOverlay.outline
-                            ? `
-                              -1px -1px 0 ${parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000"},
-                               1px -1px 0 ${parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000"},
-                              -1px  1px 0 ${parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000"},
-                               1px  1px 0 ${parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000"}
-                            `
-                            : "1px 1px 3px rgba(0,0,0,0.4)",
-                          maxWidth: "45%",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
-                        {textOverlay.text}
-                      </div>
-                    )}
+                    {/* CSS Text overlay on SVG mockup — positioned over the print area */}
+                    {textOverlay.text.trim() && (() => {
+                      const outlineColor = parseInt(textOverlay.color.slice(1, 3), 16) * 0.299 + parseInt(textOverlay.color.slice(3, 5), 16) * 0.587 + parseInt(textOverlay.color.slice(5, 7), 16) * 0.114 < 128 ? "#FFFFFF" : "#000000";
+                      return (
+                        <div
+                          className="absolute pointer-events-none"
+                          style={{
+                            left: `${27.6 + (textOverlay.x / 100) * 44.8}%`,
+                            top: `${21.7 + (textOverlay.y / 100) * 41.7}%`,
+                            transform: "translate(-50%, -50%)",
+                            fontFamily: textOverlay.font,
+                            fontSize: `${textOverlay.fontSize * 0.3}px`,
+                            fontWeight: textOverlay.bold ? "bold" : "normal",
+                            fontStyle: textOverlay.italic ? "italic" : "normal",
+                            color: textOverlay.color,
+                            textAlign: textOverlay.align,
+                            whiteSpace: "nowrap",
+                            textShadow: textOverlay.outline
+                              ? `-1px -1px 0 ${outlineColor}, 1px -1px 0 ${outlineColor}, -1px 1px 0 ${outlineColor}, 1px 1px 0 ${outlineColor}`
+                              : "1px 1px 3px rgba(0,0,0,0.4)",
+                            maxWidth: "45%",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {textOverlay.text}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
 
               {mockupError && (
-                <p className="text-xs text-muted-foreground">
-                  Printify unavailable — using preview mockup
-                </p>
+                <div className="flex items-center gap-2 px-3 py-2 bg-surface-raised border border-border rounded-lg">
+                  <Info className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                  <p className="text-xs text-muted-foreground">
+                    Preview mockup — final product will be professionally printed by Printify
+                  </p>
+                </div>
               )}
 
               {/* Text overlay editor — always visible in shirt mode */}

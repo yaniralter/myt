@@ -22,24 +22,62 @@ function getApiKey(): string {
 
 async function printifyFetch(path: string, options: RequestInit = {}) {
   const url = `${PRINTIFY_API_BASE}${path}`;
-  console.log(`[Printify] ${options.method || "GET"} ${url}`);
+  const method = options.method || "GET";
+  console.log(`[Printify] ${method} ${url}`);
 
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${getApiKey()}`,
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
+  const MAX_RETRIES = 3;
+  const BACKOFF_MS = [2000, 4000, 8000];
 
-  if (!res.ok) {
-    const errorText = await res.text();
-    console.error(`[Printify] ${res.status} response from ${url}:`, errorText);
-    throw new Error(`Printify API ${res.status}: ${errorText}`);
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(url, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${getApiKey()}`,
+          "Content-Type": "application/json",
+          ...options.headers,
+        },
+        signal: AbortSignal.timeout(15000), // 15s timeout per request
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error(`[Printify] ${res.status} response from ${url}:`, errorText);
+
+        // Don't retry client errors (4xx) except 429 (rate limit)
+        if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+          throw new Error(`Printify API ${res.status}: ${errorText}`);
+        }
+
+        // Retry server errors and rate limits
+        if (attempt < MAX_RETRIES) {
+          const delay = BACKOFF_MS[attempt] || 8000;
+          console.log(`[Printify] Retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+
+        throw new Error(`Printify API ${res.status}: ${errorText}`);
+      }
+
+      return res.json();
+    } catch (err) {
+      const isNetworkError =
+        err instanceof TypeError ||
+        (err instanceof Error && (err.name === "AbortError" || err.message.includes("fetch failed")));
+
+      if (isNetworkError && attempt < MAX_RETRIES) {
+        const delay = BACKOFF_MS[attempt] || 8000;
+        console.warn(`[Printify] Network error on attempt ${attempt + 1}, retrying in ${delay}ms...`, err instanceof Error ? err.message : err);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+
+      throw err;
+    }
   }
 
-  return res.json();
+  throw new Error("Printify API: max retries exceeded");
 }
 
 /** Discover the shop ID from Printify API (auto-finds the user's first shop) */
